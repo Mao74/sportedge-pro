@@ -35,7 +35,10 @@
 
 	# Reverse-proxy /api/* to the backend container on the internal
 	# docker network. The backend never publishes a host port.
-	handle_path /api/* {
+	# NB: usiamo `handle` (non `handle_path`) per preservare il prefisso
+	# `/api/`: il backend FastAPI monta i router con prefix `/api/v1`,
+	# quindi si aspetta il path completo.
+	handle /api/* {
 		reverse_proxy backend:8000 {
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}

@@ -138,16 +138,20 @@ function Invoke-Remote {
     }
 }
 
-# Pipe a multi-line bash script to 'bash -s' over SSH. Each $Lines element
-# becomes a separate line. Uses LF endings (not CRLF) for bash safety.
+# Esegui uno script bash multi-riga sul VPS. Encoding via base64 per
+# bypassare la conversione automatica LF->CRLF che PowerShell 5.1 fa
+# quando pipi una stringa a un comando nativo (causerebbe errori bash
+# del tipo "$'\r': command not found").
 function Invoke-RemoteScript {
     param(
         [string]$Target,
         [string[]]$Lines,
-        [switch]$AllowFail   # set $script:RemoteExitCode without throwing
+        [switch]$AllowFail
     )
-    $script = ($Lines -join "`n") + "`n"
-    $script | & ssh $Target 'bash -s'
+    $bashScript = ($Lines -join "`n") + "`n"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($bashScript)
+    $b64 = [Convert]::ToBase64String($bytes)
+    & ssh $Target "echo $b64 | base64 -d | bash"
     $script:RemoteExitCode = $LASTEXITCODE
     if (-not $AllowFail -and $LASTEXITCODE -ne 0) {
         throw ("Script remoto fallito (exit " + $LASTEXITCODE + ")")
