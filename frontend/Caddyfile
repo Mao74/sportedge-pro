@@ -46,28 +46,33 @@
 		}
 	}
 
-	# Static bundle.
-	root * /srv/sportedge
+	# Default catch-all (SPA). Wrappato in `handle` senza matcher per
+	# mutua esclusione con `handle /api/*`: senza questo wrap, le bare
+	# direttive (try_files/file_server) finirebbero per essere applicate
+	# anche alle rotte /api/* e sovrascriverebbero la risposta del proxy.
+	handle {
+		root * /srv/sportedge
 
-	# Long-cache hashed assets (Vite emits content-hashed filenames).
-	@hashed path_regexp hashed ^/assets/.*\.[a-f0-9]{8,}\..+$
-	header @hashed Cache-Control "public, max-age=31536000, immutable"
+		# Long-cache hashed assets (Vite emits content-hashed filenames).
+		@hashed path_regexp hashed ^/assets/.*\.[a-f0-9]{8,}\..+$
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
 
-	# Never cache the SPA shell — it points at the latest /assets/*.
-	@html path /index.html / /
-	header @html Cache-Control "no-cache, no-store, must-revalidate"
+		# Never cache the SPA shell.
+		@html path /index.html / /
+		header @html Cache-Control "no-cache, no-store, must-revalidate"
 
-	# Security headers — Caddy already does HSTS via auto_https; the rest
-	# tighten the response surface.
-	header {
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		X-Frame-Options "DENY"
-		Permissions-Policy "camera=(), microphone=(), geolocation=()"
-		-Server
+		# Security headers — Caddy already does HSTS via auto_https; the rest
+		# tighten the response surface.
+		header {
+			X-Content-Type-Options "nosniff"
+			Referrer-Policy "strict-origin-when-cross-origin"
+			X-Frame-Options "DENY"
+			Permissions-Policy "camera=(), microphone=(), geolocation=()"
+			-Server
+		}
+
+		# SPA fallback: anything that isn't an asset falls through to index.html.
+		try_files {path} /index.html
+		file_server
 	}
-
-	# SPA fallback: anything that isn't an asset falls through to index.html.
-	try_files {path} /index.html
-	file_server
 }
