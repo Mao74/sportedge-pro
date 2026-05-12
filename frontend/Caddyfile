@@ -1,0 +1,70 @@
+# Caddy 2 — production config for the SportEdge Pro frontend container.
+#
+# Two listeners:
+#   - {$PUBLIC_DOMAIN} on HTTPS (443): the SPA + /api proxy with auto-TLS
+#     via Let's Encrypt. HTTP → HTTPS redirect is automatic.
+#   - :80/healthz: a tiny plaintext probe used by HEALTHCHECK / monitoring.
+#
+# Environment variables are read from the container env (set by
+# docker-compose.prod.yml):
+#   PUBLIC_DOMAIN  e.g. sportedge.mauriziomolinari.cloud
+#   ACME_EMAIL     mail address shared with Let's Encrypt for cert lifecycle
+#
+# Caddy stores certs + ACME state under /data which is bind-mounted to a
+# named volume so renewals survive container rebuilds.
+
+{
+	email {$ACME_EMAIL}
+	# auto_https is ON by default → Caddy obtains and renews the LE cert
+	# for {$PUBLIC_DOMAIN} automatically and redirects http://… to https.
+	admin off
+}
+
+# Health endpoint kept on plain HTTP so docker / external monitors don't
+# need to know the TLS cert.
+:80 {
+	respond /healthz "ok" 200
+}
+
+# Main app — Caddy will issue a Let's Encrypt cert on first boot.
+{$PUBLIC_DOMAIN} {
+	encode gzip zstd
+
+	# Same /healthz available on HTTPS too.
+	respond /healthz "ok" 200
+
+	# Reverse-proxy /api/* to the backend container on the internal
+	# docker network. The backend never publishes a host port.
+	handle_path /api/* {
+		reverse_proxy backend:8000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Static bundle.
+	root * /srv/sportedge
+
+	# Long-cache hashed assets (Vite emits content-hashed filenames).
+	@hashed path_regexp hashed ^/assets/.*\.[a-f0-9]{8,}\..+$
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# Never cache the SPA shell — it points at the latest /assets/*.
+	@html path /index.html / /
+	header @html Cache-Control "no-cache, no-store, must-revalidate"
+
+	# Security headers — Caddy already does HSTS via auto_https; the rest
+	# tighten the response surface.
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# SPA fallback: anything that isn't an asset falls through to index.html.
+	try_files {path} /index.html
+	file_server
+}

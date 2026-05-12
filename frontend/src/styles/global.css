@@ -1,0 +1,187 @@
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-sans/500.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Design tokens — see docs/frontend.md "Color system".
+   Dark is default; light mode is fully supported via [data-theme="light"].
+   --------------------------------------------------------------------------- */
+
+:root,
+:root[data-theme='dark'] {
+  --bg-base: #07090c;
+  --bg-elevated: #0f1218;
+  --bg-overlay: #161b24;
+  --bg-hover: #1a2030;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-focus: #8b7fff;
+
+  --text-primary: #e8ecf1;
+  --text-secondary: #8b92a3;
+  --text-tertiary: #5a6273;
+
+  --accent-gain: #1dcc8c;
+  --accent-gain-bg: rgba(29, 204, 140, 0.1);
+  --accent-loss: #ff4757;
+  --accent-loss-bg: rgba(255, 71, 87, 0.1);
+  --accent-warn: #ffb547;
+  --accent-warn-bg: rgba(255, 181, 71, 0.1);
+  --accent-info: #4da3ff;
+  --accent-info-bg: rgba(77, 163, 255, 0.1);
+  --accent-brand: #8b7fff;
+  --accent-brand-bg: rgba(139, 127, 255, 0.1);
+
+  /* Strategy palette — built-ins are fixed; customs cycle through 1..6 */
+  --strat-magic-cs: #8b7fff;
+  --strat-draw-hunter: #1dcc8c;
+  --strat-custom-1: #ffb547;
+  --strat-custom-2: #4da3ff;
+  --strat-custom-3: #ff6fcf;
+  --strat-custom-4: #00d4d4;
+  --strat-custom-5: #ff8a4d;
+  --strat-custom-6: #c792ea;
+}
+
+:root[data-theme='light'] {
+  --bg-base: #fafafa;
+  --bg-elevated: #ffffff;
+  --bg-overlay: #ffffff;
+  --bg-hover: #f4f5f7;
+
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.12);
+  --border-focus: #6b5fff;
+
+  --text-primary: #0e1116;
+  --text-secondary: #5a6273;
+  --text-tertiary: #9097a3;
+
+  --accent-gain: #0f9d6e;
+  --accent-gain-bg: rgba(15, 157, 110, 0.1);
+  --accent-loss: #dd3344;
+  --accent-loss-bg: rgba(221, 51, 68, 0.1);
+  --accent-warn: #c77b0f;
+  --accent-warn-bg: rgba(199, 123, 15, 0.1);
+  --accent-info: #2a7cd9;
+  --accent-info-bg: rgba(42, 124, 217, 0.1);
+  --accent-brand: #6b5fff;
+  --accent-brand-bg: rgba(107, 95, 255, 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+   Base element styles
+   --------------------------------------------------------------------------- */
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family:
+      'Geist', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+      Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals everywhere we render numbers (P/L, odds, stakes). */
+  .tabular,
+  .font-mono,
+  td.numeric,
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  /* Focus ring — used by every interactive primitive. */
+  :focus-visible {
+    outline: 2px solid var(--accent-brand-bg);
+    outline-offset: 2px;
+    border-color: var(--border-focus);
+  }
+
+  ::selection {
+    background-color: var(--accent-brand-bg);
+    color: var(--text-primary);
+  }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reusable component classes (used until the primitives library lands in step 8)
+   --------------------------------------------------------------------------- */
+
+@layer components {
+  .surface-card {
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 20px;
+    transition: border-color 200ms ease;
+  }
+  .surface-card:hover {
+    border-color: var(--border-strong);
+  }
+
+  .text-gain {
+    color: var(--accent-gain);
+  }
+  .text-loss {
+    color: var(--accent-loss);
+  }
+  .text-warn {
+    color: var(--accent-warn);
+  }
+  .text-info {
+    color: var(--accent-info);
+  }
+  .text-brand {
+    color: var(--accent-brand);
+  }
+
+  /* Live-trade pulse dot — used by the dashboard's open-trade list. */
+  .pulse-dot {
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}

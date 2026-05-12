@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1.7
+# Production frontend image: Vite build, served by Caddy with SPA fallback
+# and aggressive caching for hashed static assets.
+
+# --- Stage 1: build the static bundle ---------------------------------------
+FROM node:20-alpine AS builder
+
+WORKDIR /build
+
+# Cached layer for deps. Use a deterministic install when a lockfile exists,
+# otherwise fall back to a regular install (the dev container's lockfile is
+# generated on first run and may not be committed).
+COPY package.json ./
+COPY package-lock.json* ./
+RUN if [ -f package-lock.json ]; then \
+      npm ci --no-audit --no-fund; \
+    else \
+      npm install --no-audit --no-fund; \
+    fi
+
+COPY . .
+
+# Vite reads VITE_API_BASE_URL at build time. The default (/api/v1) works
+# behind any reverse proxy; override via the build arg if the API lives on
+# a different host than the frontend.
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+RUN npm run build
+
+
+# --- Stage 2: Caddy serves the bundle ---------------------------------------
+FROM caddy:2-alpine AS runtime
+
+COPY --from=builder /build/dist /srv/sportedge
+COPY Caddyfile /etc/caddy/Caddyfile
+
+EXPOSE 80
+HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost/healthz || exit 1

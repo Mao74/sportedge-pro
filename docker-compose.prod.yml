@@ -1,0 +1,120 @@
+# Production stack for the Hostinger VPS.
+#
+# The frontend container terminates TLS directly via Caddy + Let's Encrypt:
+# it owns host ports 80 and 443 and serves ``$PUBLIC_DOMAIN`` (e.g.
+# sportedge.mauriziomolinari.cloud). The backend stays inside the docker
+# network — never published to the host.
+#
+# Postgres has no published port either; access is internal-only.
+#
+# Logs rotate at 10 MB × 5 files per service to avoid disk fills.
+# All services have restart: unless-stopped so reboots come back clean.
+#
+# Persistent data lives in three named volumes:
+#   sportedge-postgres-data   — DB
+#   sportedge-caddy-data      — Let's Encrypt certs + ACME state
+#   sportedge-caddy-config    — Caddy admin config (effectively empty)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sportedge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sportedge-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: sportedge-backend:latest
+    container_name: sportedge-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: prod
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENABLE_SCHEDULER: "true"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      JWT_ACCESS_TOKEN_TTL_MINUTES: ${JWT_ACCESS_TOKEN_TTL_MINUTES:-120}
+      JWT_REFRESH_TOKEN_TTL_DAYS: ${JWT_REFRESH_TOKEN_TTL_DAYS:-14}
+      DEFAULT_USER_EMAIL: ${DEFAULT_USER_EMAIL:?DEFAULT_USER_EMAIL is required}
+      DEFAULT_USER_PASSWORD: ${DEFAULT_USER_PASSWORD:?DEFAULT_USER_PASSWORD is required}
+      DEFAULT_STARTING_BANKROLL: ${DEFAULT_STARTING_BANKROLL:-1000.00}
+      OBSIDIAN_DEFAULT_VAULT: /vault
+    volumes:
+      # Obsidian vault — host path → /vault inside the container.
+      - ${OBSIDIAN_VAULT_PATH:-./obsidian-vault}:/vault
+    networks:
+      - sportedge-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    image: sportedge-frontend:latest
+    container_name: sportedge-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # The Caddyfile reads these via {$PUBLIC_DOMAIN} / {$ACME_EMAIL}.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    ports:
+      # Caddy owns 80 (HTTP → HTTPS redirect) and 443 (TLS terminator).
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - sportedge-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  postgres_data:
+    name: sportedge-postgres-data
+  caddy_data:
+    name: sportedge-caddy-data
+  caddy_config:
+    name: sportedge-caddy-config
+
+networks:
+  sportedge-net:
+    name: sportedge-net
+    driver: bridge

@@ -1,0 +1,46 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Node / frontend
+node_modules/
+.vite/
+.cache/
+frontend/dist/
+
+# IDE / OS
+.vscode/
+.idea/
+.claude/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local data
+data/
+obsidian-vault/
+
+# Logs
+*.log
+
+# Docker
+docker-compose.override.yml
