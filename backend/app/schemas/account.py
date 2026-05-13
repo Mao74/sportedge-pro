@@ -32,9 +32,13 @@ class AccountCreate(AccountBase):
 
 
 class AccountUpdate(BaseModel):
-    """Patch — every field optional. Excludes opening_balance because
-    changing it after the fact would invalidate every snapshot. Use
-    POST /bankroll/adjust to move money in/out instead."""
+    """Patch — every field optional.
+
+    `opening_balance` is editable: this is a single-user app so retroactively
+    correcting the seeded balance is a legitimate first-time-setup action.
+    For ongoing money movements after trades are booked, prefer
+    POST /bankroll/adjust so the audit trail stays coherent.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -44,6 +48,10 @@ class AccountUpdate(BaseModel):
     commission_pct: Annotated[
         Decimal | None,
         Field(default=None, ge=Decimal("0"), le=Decimal("100"), max_digits=4, decimal_places=2),
+    ] = None
+    opening_balance: Annotated[
+        Decimal | None,
+        Field(default=None, ge=Decimal("0"), max_digits=12, decimal_places=2),
     ] = None
     opened_at: date | None = None
     is_active: bool | None = None

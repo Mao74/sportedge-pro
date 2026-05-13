@@ -277,7 +277,6 @@ export function AccountsPanel() {
           submitLabel="Create"
           submitting={create.isPending}
           onSubmit={({ draft, openingBalance }) => handleCreate(draft, openingBalance)}
-          includeOpeningBalance
         />
       ) : null}
       {editing ? (
@@ -293,7 +292,7 @@ export function AccountsPanel() {
             commission_pct: editing.commission_pct,
             opening_balance: editing.opening_balance,
           }}
-          onSubmit={({ draft }) =>
+          onSubmit={({ draft, openingBalance }) =>
             handlePatch(
               editing.id,
               {
@@ -301,6 +300,8 @@ export function AccountsPanel() {
                 venue: draft.venue,
                 market_type: draft.market_type,
                 commission_pct: draft.commission_pct,
+                opening_balance:
+                  openingBalance !== editing.opening_balance ? openingBalance : undefined,
               },
               () => setEditing(null),
             )
@@ -317,7 +318,6 @@ interface AccountFormModalProps {
   submitLabel: string;
   submitting: boolean;
   initial?: Draft;
-  includeOpeningBalance?: boolean;
   onClose: () => void;
   onSubmit: (payload: { draft: Draft; openingBalance: string }) => void;
 }
@@ -327,7 +327,6 @@ function AccountFormModal({
   submitLabel,
   submitting,
   initial,
-  includeOpeningBalance = false,
   onClose,
   onSubmit,
 }: AccountFormModalProps) {
@@ -405,15 +404,13 @@ function AccountFormModal({
               : undefined
           }
         />
-        {includeOpeningBalance ? (
-          <NumberInput
-            label="Opening balance (€)"
-            step="0.01" min="0"
-            value={openingBalance}
-            onChange={(e) => setOpeningBalance(e.target.value)}
-            hint="Use POST /bankroll/adjust later to add/remove funds; opening balance is fixed once saved."
-          />
-        ) : null}
+        <NumberInput
+          label="Opening balance (€)"
+          step="0.01" min="0"
+          value={openingBalance}
+          onChange={(e) => setOpeningBalance(e.target.value)}
+          hint="The bankroll baseline for this account. Edit any time during setup; for ongoing money movements after trades, prefer Bankroll → Deposit/Withdrawal."
+        />
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>Cancel</Button>

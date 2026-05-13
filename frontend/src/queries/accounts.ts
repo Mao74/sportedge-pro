@@ -33,6 +33,7 @@ export interface AccountUpdate {
   venue?: string;
   market_type?: MarketType;
   commission_pct?: string;
+  opening_balance?: string;
   opened_at?: string;
   is_active?: boolean;
 }
