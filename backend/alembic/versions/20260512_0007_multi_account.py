@@ -29,10 +29,12 @@ Seed:
   — the user edits via Settings → Accounts).
 - ``app_settings.default_account_id`` points at the Betfair seed.
 
-Idempotent: both ``upgrade`` and ``downgrade`` implemented. The downgrade
-ASSUMES no trades or bankroll_snapshots exist (the same precondition the
-upgrade relies on); if you've already booked rows against account_id, you
-need to detach them manually before rolling back.
+Idempotent: both ``upgrade`` and ``downgrade`` implemented. The upgrade
+backfills any pre-existing trades / bankroll_snapshots onto the seeded
+Betfair account before flipping account_id to NOT NULL — so it works
+both on a fresh DB and one with rows already in place. The downgrade
+ASSUMES the resulting bankroll/trade history is buttabile (it drops the
+account_id column unconditionally).
 """
 
 from __future__ import annotations
@@ -152,31 +154,47 @@ def upgrade() -> None:
         ],
     )
 
-    # 3. trades.account_id (NOT NULL — DB is clean at this point so no
-    #    backfill is needed; if you ever rerun this on a DB with existing
-    #    trades you'd need to add the column nullable, backfill, then SET
-    #    NOT NULL).
+    # 3. trades.account_id — add nullable, backfill existing rows onto the
+    #    Betfair seed, then SET NOT NULL. Safe whether the table is empty
+    #    (no rows to backfill, single UPDATE is a no-op) or has data.
     op.add_column(
         "trades",
         sa.Column(
             "account_id",
             postgresql.UUID(as_uuid=True),
             sa.ForeignKey("accounts.id", ondelete="RESTRICT"),
-            nullable=False,
+            nullable=True,
         ),
     )
+    op.execute(
+        """
+        UPDATE trades
+        SET account_id = (SELECT id FROM accounts WHERE name = 'Betfair' LIMIT 1)
+        WHERE account_id IS NULL
+        """
+    )
+    op.alter_column("trades", "account_id", nullable=False)
     op.create_index("ix_trades_account_id", "trades", ["account_id"])
 
-    # 4. bankroll_snapshots.account_id (idem)
+    # 4. bankroll_snapshots.account_id — same nullable + backfill + NOT NULL
+    #    dance so a prod DB with pre-existing auto-snapshots upgrades cleanly.
     op.add_column(
         "bankroll_snapshots",
         sa.Column(
             "account_id",
             postgresql.UUID(as_uuid=True),
             sa.ForeignKey("accounts.id", ondelete="RESTRICT"),
-            nullable=False,
+            nullable=True,
         ),
     )
+    op.execute(
+        """
+        UPDATE bankroll_snapshots
+        SET account_id = (SELECT id FROM accounts WHERE name = 'Betfair' LIMIT 1)
+        WHERE account_id IS NULL
+        """
+    )
+    op.alter_column("bankroll_snapshots", "account_id", nullable=False)
     op.create_index(
         "ix_bankroll_snapshots_account_taken",
         "bankroll_snapshots",
