@@ -3,7 +3,6 @@ name = "sportedge-pro-backend"
 version = "0.1.0"
 description = "SportEdge Pro — backend API (FastAPI + SQLAlchemy async + Alembic)"
 requires-python = ">=3.12"
-readme = "../README.md"
 
 dependencies = [
     "fastapi>=0.115.0",
