@@ -34,10 +34,21 @@ def _stub_strategy(name="Magic CS", slug="magic-cs", color="#8B7FFF"):
     )
 
 
+def _stub_account(name="Betfair", venue="betfair"):
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        name=name,
+        venue=venue,
+        market_type=MarketType.exchange,
+        commission_pct=Decimal("5.00"),
+    )
+
+
 def _stub_trade(**overrides):
     base = SimpleNamespace(
         id=uuid.uuid4(),
         strategy=_stub_strategy(),
+        account=_stub_account(),
         sport="football",
         home_team="Inter",
         away_team="Lazio",
@@ -82,6 +93,8 @@ class TestRenderTrade:
         assert doc["computed_pnl_eur"] == "41.20"
         assert doc["outcome_label"] == "A2_OVER25"
         assert doc["status"] == "CLOSED"
+        assert doc["account"] == "Betfair"
+        assert doc["account_venue"] == "betfair"
 
     def test_user_editable_block_present_with_initial_notes(self) -> None:
         t = _stub_trade()

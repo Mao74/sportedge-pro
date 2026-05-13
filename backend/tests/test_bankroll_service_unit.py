@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
 from app.models import (
+    Account,
     BankrollSnapshot,
     PnLMode,
     Strategy,
@@ -23,6 +24,15 @@ from app.models import (
 from app.services import bankroll_service as bsvc
 
 D = Decimal
+
+
+async def _seed_account_id(session) -> object:
+    """Return the Betfair seed account id (re-created by conftest before each test)."""
+    from sqlalchemy import select
+    res = await session.execute(
+        select(Account).where(Account.name == "Betfair").limit(1)
+    )
+    return res.scalar_one().id
 
 
 @pytest.fixture
@@ -60,10 +70,12 @@ async def test_current_bankroll_includes_closed_pnl_and_adjustments(session) -> 
     from sqlalchemy import select
     s_res = await session.execute(select(Strategy).where(Strategy.kind == StrategyKind.builtin).limit(1))
     strat = s_res.scalar_one()
+    acc_id = await _seed_account_id(session)
 
     # Add a closed trade
     t = Trade(
         strategy_id=strat.id,
+        account_id=acc_id,
         home_team="A", away_team="B", league="X",
         kickoff_at=datetime.now(UTC),
         stake_total=D("100"), avg_odds=D("2.5"),
@@ -78,6 +90,7 @@ async def test_current_bankroll_includes_closed_pnl_and_adjustments(session) -> 
 
     # Add a deposit snapshot
     snap = BankrollSnapshot(
+        account_id=acc_id,
         taken_at=datetime.now(UTC),
         balance_eur=D("0"),  # placeholder; not used by compute_current_bankroll
         deposit_eur=D("250"), withdrawal_eur=D("0"),
@@ -105,11 +118,13 @@ async def test_compute_daily_series_buckets_by_day(session) -> None:
     from sqlalchemy import select
     s_res = await session.execute(select(Strategy).where(Strategy.kind == StrategyKind.builtin).limit(1))
     strat = s_res.scalar_one()
+    acc_id = await _seed_account_id(session)
 
     base = datetime(2026, 4, 20, 20, 0, tzinfo=UTC)
     for i, pnl in enumerate(["10", "20", "-5"]):
         t = Trade(
             strategy_id=strat.id,
+            account_id=acc_id,
             home_team="A", away_team="B", league="X",
             kickoff_at=base + timedelta(days=i),
             stake_total=D("100"), avg_odds=D("2.5"),
@@ -137,12 +152,14 @@ async def test_range_window_filters(session) -> None:
     from sqlalchemy import select
     s_res = await session.execute(select(Strategy).where(Strategy.kind == StrategyKind.builtin).limit(1))
     strat = s_res.scalar_one()
+    acc_id = await _seed_account_id(session)
 
     # One trade 100 days ago, one yesterday.
     now = datetime.now(UTC)
     for days_ago, pnl in [(100, "10"), (1, "20")]:
         t = Trade(
             strategy_id=strat.id,
+            account_id=acc_id,
             home_team="A", away_team="B", league="X",
             kickoff_at=now - timedelta(days=days_ago),
             stake_total=D("100"), avg_odds=D("2.5"),

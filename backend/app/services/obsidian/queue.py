@@ -68,7 +68,11 @@ async def _process_one() -> None:
             trade = (
                 await db.execute(
                     select(Trade)
-                    .options(selectinload(Trade.strategy), selectinload(Trade.tags))
+                    .options(
+                        selectinload(Trade.strategy),
+                        selectinload(Trade.account),
+                        selectinload(Trade.tags),
+                    )
                     .where(Trade.id == trade_id)
                 )
             ).scalar_one_or_none()

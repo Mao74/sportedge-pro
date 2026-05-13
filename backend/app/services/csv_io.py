@@ -357,7 +357,8 @@ async def import_trades_csv(
     # `app_settings.default_account_id` — fetched lazily on first need.
     account_names = {p["account_name"] for _, p in parsed_rows if p["account_name"]}
     acct_by_name = await _resolve_accounts(db, account_names)
-    default_acct_id: uuid.UUID | None | str = "<unresolved>"
+    default_acct_id: uuid.UUID | None = None
+    default_loaded = False
 
     valid: list[tuple[int, dict]] = []
     for i, p in parsed_rows:
@@ -382,8 +383,9 @@ async def import_trades_csv(
                 continue
             p["account_id"] = account.id
         else:
-            if default_acct_id == "<unresolved>":
+            if not default_loaded:
                 default_acct_id = await _default_account_id(db)
+                default_loaded = True
             if default_acct_id is None:
                 errors.append(
                     CsvRowError(

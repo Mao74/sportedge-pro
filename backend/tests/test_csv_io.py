@@ -47,7 +47,10 @@ class TestExportCsv:
         lines = resp.text.strip().splitlines()
         assert len(lines) == 1
         header = lines[0].split(",")
-        for col in ("kickoff_at", "strategy_slug", "market_type", "pnl_mode", "tags"):
+        for col in (
+            "kickoff_at", "strategy_slug", "account_name",
+            "market_type", "pnl_mode", "tags",
+        ):
             assert col in header
 
     def test_export_one_trade(self, client_with_auth: TestClient) -> None:
@@ -65,7 +68,7 @@ class TestExportCsv:
 
 class TestImportCsv:
     HEADER = (
-        "kickoff_at,closed_at,strategy_slug,home_team,away_team,league,"
+        "kickoff_at,closed_at,strategy_slug,account_name,home_team,away_team,league,"
         "stake_total,avg_odds,commission_pct,market_type,pnl_mode,position_side,"
         "outcome_label,cashout_odds,manual_pnl_eur,status,ht_score_home,"
         "ht_score_away,ft_score_home,ft_score_away,tags,strategy_data,notes_md,"
@@ -82,8 +85,8 @@ class TestImportCsv:
     def test_dry_run_two_valid_rows(self, client_with_auth: TestClient) -> None:
         _custom_strategy(client_with_auth)  # slug "bare"
         csv_text = self.HEADER + "\n" + "\n".join([
-            "2026-04-28T20:45:00+00:00,2026-04-28T22:30:00+00:00,bare,Inter,Lazio,Serie A,100.00,2.50,5.00,exchange,MANUAL,,WIN,,42.50,CLOSED,,,,,live,{},,,0.00",
-            "2026-04-29T18:00:00+00:00,,bare,Roma,Milan,Serie A,50.00,3.00,0.00,classic,AUTO,back,WIN,,,OPEN,,,,,,{},,,0.00",
+            "2026-04-28T20:45:00+00:00,2026-04-28T22:30:00+00:00,bare,Betfair,Inter,Lazio,Serie A,100.00,2.50,5.00,exchange,MANUAL,,WIN,,42.50,CLOSED,,,,,live,{},,,0.00",
+            "2026-04-29T18:00:00+00:00,,bare,Betfair,Roma,Milan,Serie A,50.00,3.00,0.00,classic,AUTO,back,WIN,,,OPEN,,,,,,{},,,0.00",
         ])
         body = self._post_csv(client_with_auth, csv_text, dry_run=True)
         assert body["parsed_rows"] == 2
@@ -95,7 +98,7 @@ class TestImportCsv:
     def test_commit_inserts_trades(self, client_with_auth: TestClient) -> None:
         _custom_strategy(client_with_auth)
         csv_text = self.HEADER + "\n" + (
-            "2026-04-28T20:45:00+00:00,2026-04-28T22:30:00+00:00,bare,Inter,Lazio,Serie A,"
+            "2026-04-28T20:45:00+00:00,2026-04-28T22:30:00+00:00,bare,Betfair,Inter,Lazio,Serie A,"
             "100.00,2.50,5.00,exchange,MANUAL,,WIN,,42.50,CLOSED,,,,,live,{},,,0.00"
         )
         body = self._post_csv(client_with_auth, csv_text, dry_run=False)
@@ -114,7 +117,7 @@ class TestImportCsv:
     ) -> None:
         _custom_strategy(client_with_auth)
         csv_text = self.HEADER + "\n" + (
-            "2026-04-28T20:45:00+00:00,2026-04-28T22:30:00+00:00,bare,A,B,X,"
+            "2026-04-28T20:45:00+00:00,2026-04-28T22:30:00+00:00,bare,Betfair,A,B,X,"
             "100.00,2.50,5.00,classic,AUTO,back,WIN,,,CLOSED,,,,,,{},,,9999.99"
         )
         body = self._post_csv(client_with_auth, csv_text, dry_run=False)
@@ -128,7 +131,7 @@ class TestImportCsv:
     ) -> None:
         # No strategy created with slug "ghost"
         csv_text = self.HEADER + "\n" + (
-            "2026-04-28T20:45:00+00:00,,ghost,A,B,X,100.00,2.50,5.00,exchange,"
+            "2026-04-28T20:45:00+00:00,,ghost,Betfair,A,B,X,100.00,2.50,5.00,exchange,"
             "MANUAL,,WIN,,42.50,OPEN,,,,,,{},,,0.00"
         )
         body = self._post_csv(client_with_auth, csv_text, dry_run=True)

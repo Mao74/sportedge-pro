@@ -12,51 +12,41 @@ class TestPreferences:
         resp = client_with_auth.get("/api/v1/preferences")
         assert resp.status_code == 200
         body = resp.json()
-        assert Decimal(body["default_commission_pct"]) == Decimal("4.50")
-        assert body["betting_exchange"] == "betfair"
-        assert body["default_market_type"] == "exchange"
+        # Conftest seeds Betfair and points default_account_id at it.
+        assert body["default_account_id"] is not None
 
-    def test_patch_market_type(self, client_with_auth: TestClient) -> None:
+    def test_patch_default_account_id(self, client_with_auth: TestClient) -> None:
+        # Create a second account, then move the default onto it.
+        created = client_with_auth.post(
+            "/api/v1/accounts",
+            json={
+                "name": "Smarkets",
+                "venue": "smarkets",
+                "market_type": "exchange",
+                "commission_pct": "2.00",
+                "opening_balance": "500.00",
+            },
+        ).json()
         resp = client_with_auth.patch(
             "/api/v1/preferences",
-            json={"default_market_type": "classic", "betting_exchange": "Snai"},
+            json={"default_account_id": created["id"]},
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["default_market_type"] == "classic"
-        assert body["betting_exchange"] == "snai"
+        assert body["default_account_id"] == created["id"]
 
-    def test_patch_invalid_market_type(self, client_with_auth: TestClient) -> None:
+    def test_patch_clear_default_account(self, client_with_auth: TestClient) -> None:
         resp = client_with_auth.patch(
-            "/api/v1/preferences", json={"default_market_type": "weird"}
-        )
-        assert resp.status_code == 422
-
-    def test_patch_updates_both(self, client_with_auth: TestClient) -> None:
-        resp = client_with_auth.patch(
-            "/api/v1/preferences",
-            json={"default_commission_pct": "2.00", "betting_exchange": "Smarkets"},
+            "/api/v1/preferences", json={"default_account_id": None}
         )
         assert resp.status_code == 200
-        body = resp.json()
-        # Exchange names normalised to lowercase.
-        assert body["betting_exchange"] == "smarkets"
-        assert Decimal(body["default_commission_pct"]) == Decimal("2.00")
+        assert resp.json()["default_account_id"] is None
 
-    def test_patch_partial(self, client_with_auth: TestClient) -> None:
+    def test_patch_unknown_field_rejected(self, client_with_auth: TestClient) -> None:
         resp = client_with_auth.patch(
-            "/api/v1/preferences", json={"default_commission_pct": "0.00"}
+            "/api/v1/preferences", json={"default_commission_pct": "2.00"}
         )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert Decimal(body["default_commission_pct"]) == Decimal("0.00")
-        # Untouched field keeps its default.
-        assert body["betting_exchange"] == "betfair"
-
-    def test_patch_out_of_range_rejected(self, client_with_auth: TestClient) -> None:
-        resp = client_with_auth.patch(
-            "/api/v1/preferences", json={"default_commission_pct": "150.0"}
-        )
+        # extra="forbid" on PreferencesUpdate
         assert resp.status_code == 422
 
     def test_get_requires_auth(self, client: TestClient) -> None:

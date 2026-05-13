@@ -131,7 +131,7 @@ class ObsidianSyncService:
         end = start + timedelta(days=1)
         stmt = (
             select(Trade)
-            .options(selectinload(Trade.strategy))
+            .options(selectinload(Trade.strategy), selectinload(Trade.account))
             .where(Trade.closed_at >= start, Trade.closed_at < end)
             .order_by(Trade.closed_at)
         )
@@ -191,7 +191,9 @@ class ObsidianSyncService:
         trades = (
             await self.db.execute(
                 select(Trade).options(
-                    selectinload(Trade.strategy), selectinload(Trade.tags)
+                    selectinload(Trade.strategy),
+                    selectinload(Trade.account),
+                    selectinload(Trade.tags),
                 )
             )
         ).scalars().all()
