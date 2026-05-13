@@ -6,14 +6,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from decimal import Decimal
-
-from sqlalchemy import Boolean, DateTime, Enum, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
-from app.models.trade import MarketType
 
 
 class AppSettings(Base):
@@ -44,19 +41,13 @@ class AppSettings(Base):
     obsidian_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- Trading preferences ----------------------------------------------
-    default_commission_pct: Mapped[Decimal] = mapped_column(
-        Numeric(4, 2), nullable=False, server_default="4.50"
-    )
-    # Venue name — generalised: betting exchange (Betfair/Smarkets/...) or
-    # classic bookmaker (Snai/Bet365/...). The DB column keeps its legacy
-    # name `betting_exchange` to avoid a rename migration.
-    betting_exchange: Mapped[str] = mapped_column(
-        String(length=32), nullable=False, server_default="betfair"
-    )
-    default_market_type: Mapped[MarketType] = mapped_column(
-        Enum(MarketType, name="market_type", create_constraint=True),
-        nullable=False,
-        server_default=MarketType.exchange.value,
+    # The account pre-selected on the new-trade form. NULL means "no default
+    # set"; the UI then asks the user to pick one. ON DELETE SET NULL so
+    # deleting an account doesn't break settings.
+    default_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("accounts.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     updated_at: Mapped[datetime] = mapped_column(

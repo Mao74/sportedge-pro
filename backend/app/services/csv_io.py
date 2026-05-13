@@ -2,7 +2,7 @@
 
 Schema (header row, in this exact order — strict):
 
-    kickoff_at,closed_at,strategy_slug,home_team,away_team,league,
+    kickoff_at,closed_at,strategy_slug,account_name,home_team,away_team,league,
     stake_total,avg_odds,commission_pct,market_type,
     pnl_mode,position_side,outcome_label,cashout_odds,manual_pnl_eur,
     status,ht_score_home,ht_score_away,ft_score_home,ft_score_away,
@@ -17,8 +17,11 @@ Notes:
 - ``strategy_data`` is a JSON string literal (e.g. ``{"cs_selected":["1-0"]}``).
 - ``strategy_slug`` is matched against existing strategies; unknown slugs
   produce row-level errors. The importer never auto-creates strategies.
-- Trades reference strategies by slug (not id) so the same CSV is
-  portable across DB resets.
+- ``account_name`` is matched against active accounts; blank cells fall
+  back to ``app_settings.default_account_id``. Unknown names produce
+  row-level errors. The importer never auto-creates accounts.
+- Trades reference strategies and accounts by their human-readable
+  identifiers (slug / name) so the same CSV is portable across DB resets.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -36,6 +40,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import (
+    Account,
+    AppSettings,
     MarketType,
     PnLMode,
     Strategy,
@@ -49,6 +55,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "kickoff_at",
     "closed_at",
     "strategy_slug",
+    "account_name",
     "home_team",
     "away_team",
     "league",
@@ -102,6 +109,7 @@ def export_trades_csv(trades: Iterable[Trade]) -> str:
             _iso(t.kickoff_at),
             _iso(t.closed_at),
             t.strategy.slug if t.strategy else "",
+            t.account.name if t.account else "",
             t.home_team,
             t.away_team,
             t.league,
@@ -199,6 +207,25 @@ async def _resolve_strategies(
     return {s.slug: s for s in res.scalars()}
 
 
+async def _resolve_accounts(
+    db: AsyncSession, names: set[str]
+) -> dict[str, Account]:
+    """Match account names against the active accounts (case-sensitive)."""
+    if not names:
+        return {}
+    res = await db.execute(
+        select(Account).where(
+            Account.name.in_(names), Account.archived_at.is_(None)
+        )
+    )
+    return {a.name: a for a in res.scalars()}
+
+
+async def _default_account_id(db: AsyncSession) -> uuid.UUID | None:
+    res = await db.execute(select(AppSettings.default_account_id))
+    return res.scalar_one_or_none()
+
+
 async def _resolve_or_create_tags(db: AsyncSession, names: set[str]) -> dict[str, Tag]:
     if not names:
         return {}
@@ -234,6 +261,7 @@ def _parse_row(row: dict[str, str]) -> dict:
         "kickoff_at":       _parse_iso(row.get("kickoff_at", "")),
         "closed_at":        _parse_iso(row.get("closed_at", ""), allow_blank=True),
         "strategy_slug":    (row.get("strategy_slug") or "").strip(),
+        "account_name":     (row.get("account_name") or "").strip(),
         "home_team":        (row.get("home_team") or "").strip(),
         "away_team":        (row.get("away_team") or "").strip(),
         "league":           (row.get("league") or "").strip(),
@@ -324,6 +352,13 @@ async def import_trades_csv(
     # Resolve strategies by slug (one query).
     slugs = {p["strategy_slug"] for _, p in parsed_rows}
     strat_by_slug = await _resolve_strategies(db, slugs)
+
+    # Resolve accounts by name (one query). Blank cells fall back to the
+    # `app_settings.default_account_id` — fetched lazily on first need.
+    account_names = {p["account_name"] for _, p in parsed_rows if p["account_name"]}
+    acct_by_name = await _resolve_accounts(db, account_names)
+    default_acct_id: uuid.UUID | None | str = "<unresolved>"
+
     valid: list[tuple[int, dict]] = []
     for i, p in parsed_rows:
         if p["strategy_slug"] not in strat_by_slug:
@@ -334,6 +369,31 @@ async def import_trades_csv(
                 )
             )
             continue
+
+        if p["account_name"]:
+            account = acct_by_name.get(p["account_name"])
+            if account is None:
+                errors.append(
+                    CsvRowError(
+                        row_index=i, column="account_name",
+                        detail=f"unknown account name {p['account_name']!r}",
+                    )
+                )
+                continue
+            p["account_id"] = account.id
+        else:
+            if default_acct_id == "<unresolved>":
+                default_acct_id = await _default_account_id(db)
+            if default_acct_id is None:
+                errors.append(
+                    CsvRowError(
+                        row_index=i, column="account_name",
+                        detail="account_name is blank and no default account is configured",
+                    )
+                )
+                continue
+            p["account_id"] = default_acct_id
+
         valid.append((i, p))
 
     inserted = 0
@@ -360,6 +420,7 @@ async def import_trades_csv(
 
             trade = Trade(
                 strategy_id=strategy.id,
+                account_id=p["account_id"],
                 home_team=p["home_team"],
                 away_team=p["away_team"],
                 league=p["league"],
@@ -402,7 +463,11 @@ async def import_trades_csv(
 async def all_trades_for_export(db: AsyncSession) -> list[Trade]:
     res = await db.execute(
         select(Trade)
-        .options(selectinload(Trade.strategy), selectinload(Trade.tags))
+        .options(
+            selectinload(Trade.strategy),
+            selectinload(Trade.account),
+            selectinload(Trade.tags),
+        )
         .order_by(Trade.kickoff_at)
     )
     return list(res.scalars().all())

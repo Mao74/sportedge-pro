@@ -11,8 +11,8 @@ const dateFmt = new Intl.DateTimeFormat('it-IT', {
   minute: '2-digit',
 });
 
-export function OpenTradesCard() {
-  const { data, isLoading } = useOpenTrades(8);
+export function OpenTradesCard({ accountId }: { accountId?: string | null } = {}) {
+  const { data, isLoading } = useOpenTrades(8, accountId);
 
   return (
     <Card

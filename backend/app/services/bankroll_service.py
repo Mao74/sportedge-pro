@@ -2,10 +2,14 @@
 
 The current bankroll is *derived* every time it's queried:
 
-    bankroll = starting_bankroll
-             + sum(deposit_eur)   over snapshots
-             - sum(withdrawal_eur) over snapshots
-             + sum(computed_pnl_eur) over CLOSED trades
+    bankroll(account) = account.opening_balance
+                     + sum(deposit_eur)    over snapshots of account
+                     - sum(withdrawal_eur) over snapshots of account
+                     + sum(computed_pnl_eur) over CLOSED trades of account
+
+When called without an ``account_id`` the figure is aggregated across all
+non-archived accounts (sum of opening balances + sum of adjustments + sum
+of closed PnL).
 
 The ``bankroll_snapshots`` table doubles as the manual-adjustments ledger
 (deposits / withdrawals) AND the equity-curve sample store (the daily
@@ -15,6 +19,7 @@ balance at end of day).
 
 from __future__ import annotations
 
+import uuid
 from collections import defaultdict
 from datetime import UTC, date as date_t, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -23,8 +28,7 @@ from typing import Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.models import BankrollSnapshot, Trade, TradeStatus
+from app.models import Account, AppSettings, BankrollSnapshot, Trade, TradeStatus
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -36,56 +40,100 @@ def _q(value: Decimal, places: Decimal = TWO_PLACES) -> Decimal:
     return value.quantize(places, rounding=ROUND_HALF_EVEN)
 
 
-async def _sum_snapshot_adjustments(db: AsyncSession) -> tuple[Decimal, Decimal]:
-    res = await db.execute(
-        select(
-            func.coalesce(func.sum(BankrollSnapshot.deposit_eur), 0),
-            func.coalesce(func.sum(BankrollSnapshot.withdrawal_eur), 0),
+async def _opening_balance(
+    db: AsyncSession, account_id: uuid.UUID | None
+) -> Decimal:
+    if account_id is not None:
+        res = await db.execute(
+            select(Account.opening_balance).where(Account.id == account_id)
         )
-    )
-    deposits, withdrawals = res.one()
-    return Decimal(str(deposits)), Decimal(str(withdrawals))
+        val = res.scalar_one_or_none()
+        return Decimal(str(val)) if val is not None else ZERO
 
-
-async def _sum_closed_pnl(db: AsyncSession) -> Decimal:
+    # Aggregate: sum opening_balance of all non-archived accounts.
     res = await db.execute(
-        select(func.coalesce(func.sum(Trade.computed_pnl_eur), 0)).where(
-            Trade.status == TradeStatus.CLOSED
+        select(func.coalesce(func.sum(Account.opening_balance), 0)).where(
+            Account.archived_at.is_(None)
         )
     )
     return Decimal(str(res.scalar_one()))
 
 
-async def compute_current_bankroll(db: AsyncSession) -> Decimal:
-    settings = get_settings()
-    starting = Decimal(settings.default_starting_bankroll)
-    deposits, withdrawals = await _sum_snapshot_adjustments(db)
-    closed_pnl = await _sum_closed_pnl(db)
+async def _sum_snapshot_adjustments(
+    db: AsyncSession, account_id: uuid.UUID | None
+) -> tuple[Decimal, Decimal]:
+    q = select(
+        func.coalesce(func.sum(BankrollSnapshot.deposit_eur), 0),
+        func.coalesce(func.sum(BankrollSnapshot.withdrawal_eur), 0),
+    )
+    if account_id is not None:
+        q = q.where(BankrollSnapshot.account_id == account_id)
+    res = await db.execute(q)
+    deposits, withdrawals = res.one()
+    return Decimal(str(deposits)), Decimal(str(withdrawals))
+
+
+async def _sum_closed_pnl(
+    db: AsyncSession, account_id: uuid.UUID | None
+) -> Decimal:
+    q = select(func.coalesce(func.sum(Trade.computed_pnl_eur), 0)).where(
+        Trade.status == TradeStatus.CLOSED
+    )
+    if account_id is not None:
+        q = q.where(Trade.account_id == account_id)
+    res = await db.execute(q)
+    return Decimal(str(res.scalar_one()))
+
+
+async def compute_current_bankroll(
+    db: AsyncSession, account_id: uuid.UUID | None = None
+) -> Decimal:
+    starting = await _opening_balance(db, account_id)
+    deposits, withdrawals = await _sum_snapshot_adjustments(db, account_id)
+    closed_pnl = await _sum_closed_pnl(db, account_id)
     return starting + deposits - withdrawals + closed_pnl
 
 
-async def get_last_snapshot(db: AsyncSession) -> BankrollSnapshot | None:
-    res = await db.execute(
-        select(BankrollSnapshot).order_by(BankrollSnapshot.taken_at.desc()).limit(1)
-    )
+async def get_last_snapshot(
+    db: AsyncSession, account_id: uuid.UUID | None = None
+) -> BankrollSnapshot | None:
+    q = select(BankrollSnapshot).order_by(BankrollSnapshot.taken_at.desc()).limit(1)
+    if account_id is not None:
+        q = q.where(BankrollSnapshot.account_id == account_id)
+    res = await db.execute(q)
+    return res.scalar_one_or_none()
+
+
+async def _resolve_default_account_id(db: AsyncSession) -> uuid.UUID | None:
+    res = await db.execute(select(AppSettings.default_account_id).limit(1))
     return res.scalar_one_or_none()
 
 
 async def take_snapshot(
     db: AsyncSession,
     *,
+    account_id: uuid.UUID | None = None,
     deposit_eur: Decimal = ZERO,
     withdrawal_eur: Decimal = ZERO,
     notes: str | None = None,
     now: datetime | None = None,
 ) -> BankrollSnapshot:
-    """Compute the current bankroll AFTER the given adjustment and persist
-    a new snapshot row with the resulting balance.
+    """Compute the current bankroll FOR THE GIVEN ACCOUNT after the given
+    adjustment and persist a new snapshot row with the resulting balance.
+
+    When ``account_id`` is None we fall back to
+    ``app_settings.default_account_id`` for back-compat with pre-multi-account
+    callers (tests, scheduler). Raises ValueError if neither is set.
     """
-    settings = get_settings()
-    starting = Decimal(settings.default_starting_bankroll)
-    prev_deposits, prev_withdrawals = await _sum_snapshot_adjustments(db)
-    closed_pnl = await _sum_closed_pnl(db)
+    if account_id is None:
+        account_id = await _resolve_default_account_id(db)
+        if account_id is None:
+            raise ValueError(
+                "take_snapshot requires account_id; no default account configured"
+            )
+    starting = await _opening_balance(db, account_id)
+    prev_deposits, prev_withdrawals = await _sum_snapshot_adjustments(db, account_id)
+    closed_pnl = await _sum_closed_pnl(db, account_id)
     balance = (
         starting
         + (prev_deposits + deposit_eur)
@@ -93,6 +141,7 @@ async def take_snapshot(
         + closed_pnl
     )
     snap = BankrollSnapshot(
+        account_id=account_id,
         taken_at=now or datetime.now(UTC),
         balance_eur=_q(balance),
         deposit_eur=_q(deposit_eur),
@@ -121,7 +170,9 @@ def _range_to_cutoff(range_: RangeKey, now: datetime | None = None) -> datetime 
 
 
 async def compute_daily_series(
-    db: AsyncSession, range_: RangeKey = "all"
+    db: AsyncSession,
+    range_: RangeKey = "all",
+    account_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Returns one row per *day* with at least one event (closed trade or
     manual snapshot row). Each row carries:
@@ -130,9 +181,11 @@ async def compute_daily_series(
     - ``balance_eur`` (cumulative end-of-day)
     - ``day_pnl_eur`` (closed-trade PnL summed for that day, excluding
       manual deposits/withdrawals)
+
+    Scoped to a single account when ``account_id`` is given; otherwise
+    aggregated across all non-archived accounts.
     """
-    settings = get_settings()
-    starting = Decimal(settings.default_starting_bankroll)
+    starting = await _opening_balance(db, account_id)
     cutoff = _range_to_cutoff(range_)
 
     # Closed trades grouped by day.
@@ -140,6 +193,9 @@ async def compute_daily_series(
         func.date(Trade.closed_at).label("day"),
         func.sum(Trade.computed_pnl_eur).label("pnl"),
     ).where(Trade.status == TradeStatus.CLOSED, Trade.closed_at.isnot(None))
+    if account_id is not None:
+        trade_q = trade_q.where(Trade.account_id == account_id)
+
     trades_per_day: dict[date_t, Decimal] = {}
     for row in (await db.execute(trade_q.group_by("day"))).all():
         if row.day is None:
@@ -152,6 +208,9 @@ async def compute_daily_series(
         func.sum(BankrollSnapshot.deposit_eur).label("dep"),
         func.sum(BankrollSnapshot.withdrawal_eur).label("wd"),
     )
+    if account_id is not None:
+        snap_q = snap_q.where(BankrollSnapshot.account_id == account_id)
+
     snap_per_day: dict[date_t, Decimal] = defaultdict(lambda: ZERO)
     for row in (await db.execute(snap_q.group_by("day"))).all():
         if row.day is None:
@@ -179,15 +238,17 @@ async def compute_daily_series(
 
 async def compute_since_inception(
     db: AsyncSession,
+    account_id: uuid.UUID | None = None,
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Returns (closed_pnl, total_stake, roi_pct) for ALL closed trades
-    since inception."""
-    res = await db.execute(
-        select(
-            func.coalesce(func.sum(Trade.computed_pnl_eur), 0),
-            func.coalesce(func.sum(Trade.stake_total), 0),
-        ).where(Trade.status == TradeStatus.CLOSED)
-    )
+    since inception. Scoped to ``account_id`` when given."""
+    q = select(
+        func.coalesce(func.sum(Trade.computed_pnl_eur), 0),
+        func.coalesce(func.sum(Trade.stake_total), 0),
+    ).where(Trade.status == TradeStatus.CLOSED)
+    if account_id is not None:
+        q = q.where(Trade.account_id == account_id)
+    res = await db.execute(q)
     pnl, stake = res.one()
     pnl_d = Decimal(str(pnl))
     stake_d = Decimal(str(stake))

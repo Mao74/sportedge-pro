@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { Filter, Search, X } from 'lucide-react';
 import { Button, Chip, Input, NumberInput } from '@/components/primitives';
 import { useStrategies } from '@/queries/dashboard';
+import { useAccounts } from '@/queries/accounts';
 import type {
   PnlModeFilter,
   TradeFilters,
@@ -29,6 +30,8 @@ export function FilterBar({ filters, setFilter, reset, total }: FilterBarProps) 
   const [expanded, setExpanded] = useState(false);
   const [qDraft, setQDraft] = useState(filters.q ?? '');
   const { data: strategies } = useStrategies();
+  const { data: accountsList } = useAccounts();
+  const activeAccounts = accountsList?.filter((a) => !a.archived_at) ?? [];
 
   // Debounce the search input.
   useEffect(() => {
@@ -48,6 +51,11 @@ export function FilterBar({ filters, setFilter, reset, total }: FilterBarProps) 
     const name =
       strategies?.find((s) => s.id === filters.strategy_id)?.name ?? filters.strategy_id;
     activeChips.push({ key: 'strategy_id', label: 'Strategy', value: name });
+  }
+  if (filters.account_id) {
+    const name =
+      activeAccounts.find((a) => a.id === filters.account_id)?.name ?? filters.account_id;
+    activeChips.push({ key: 'account_id', label: 'Account', value: name });
   }
   if (filters.status) activeChips.push({ key: 'status', label: 'Status', value: filters.status });
   if (filters.pnl_mode) activeChips.push({ key: 'pnl_mode', label: 'Mode', value: filters.pnl_mode });
@@ -134,6 +142,21 @@ export function FilterBar({ filters, setFilter, reset, total }: FilterBarProps) 
               {strategies?.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-2xs uppercase tracking-widest text-text-tertiary">Account</span>
+            <select
+              value={filters.account_id ?? ''}
+              onChange={(e) => setFilter('account_id', e.target.value || undefined)}
+              className="h-9 rounded-lg border border-border-subtle bg-bg-base px-3 text-sm text-text-primary outline-none focus:border-border-focus focus:ring-2 focus:ring-accent-brand-bg"
+            >
+              <option value="">— Any —</option>
+              {activeAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
                 </option>
               ))}
             </select>

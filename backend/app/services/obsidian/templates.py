@@ -71,6 +71,8 @@ def render_trade(
         "strategy": trade.strategy.name,
         "strategy_slug": trade.strategy.slug,
         "strategy_color": trade.strategy.color_hex,
+        "account": trade.account.name if trade.account else None,
+        "account_venue": trade.account.venue if trade.account else None,
         "match": f"{trade.home_team} vs {trade.away_team}",
         "league": trade.league,
         "kickoff": _isoformat(trade.kickoff_at),
@@ -105,6 +107,7 @@ def render_trade(
 
 ## Setup
 Strategy: [[Strategies/{trade.strategy.name}]]
+Account: {trade.account.name if trade.account else "—"}{f" ({trade.account.venue})" if trade.account else ""}
 Stake total: €{trade.stake_total} · Avg odds: {trade.avg_odds} · Commission: {trade.commission_pct}%
 PnL mode: `{trade.pnl_mode.value}`{_strategy_data_lines(trade.strategy_data)}
 

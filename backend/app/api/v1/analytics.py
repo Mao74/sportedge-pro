@@ -40,6 +40,7 @@ async def _filtered_trade_rows(
     db,
     *,
     strategy_id: uuid.UUID | None = None,
+    account_id: uuid.UUID | None = None,
     league: str | None = None,
     status: TradeStatus | None = None,
     outcome_label: str | None = None,
@@ -52,7 +53,8 @@ async def _filtered_trade_rows(
     q: str | None = None,
 ) -> list[svc.TradeRow]:
     where = build_trade_where(
-        strategy_id=strategy_id, league=league, status=status,
+        strategy_id=strategy_id, account_id=account_id,
+        league=league, status=status,
         outcome_label=outcome_label, pnl_mode=pnl_mode,
         date_from=date_from, date_to=date_to,
         pnl_min=pnl_min, pnl_max=pnl_max,
@@ -73,6 +75,7 @@ def _filter_query_params():
     """Reusable filter parameters as a dict — keeps endpoint signatures short."""
     return {
         "strategy_id": Annotated[uuid.UUID | None, Query()] ,
+        "account_id": Annotated[uuid.UUID | None, Query()] ,
         "league": Annotated[str | None, Query()],
         "status": Annotated[TradeStatus | None, Query(alias="status")],
         "outcome_label": Annotated[str | None, Query()],
@@ -96,6 +99,7 @@ async def summary(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     status_: Annotated[TradeStatus | None, Query(alias="status")] = None,
     outcome_label: Annotated[str | None, Query()] = None,
@@ -109,7 +113,8 @@ async def summary(
 ) -> schemas.AnalyticsSummary:
     rows = await _filtered_trade_rows(
         db,
-        strategy_id=strategy_id, league=league, status=status_,
+        strategy_id=strategy_id, account_id=account_id,
+        league=league, status=status_,
         outcome_label=outcome_label, pnl_mode=pnl_mode,
         date_from=date_from, date_to=date_to,
         pnl_min=pnl_min, pnl_max=pnl_max, tag=tag, q=q,
@@ -146,6 +151,7 @@ async def by_strategy(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     status_: Annotated[TradeStatus | None, Query(alias="status")] = None,
     outcome_label: Annotated[str | None, Query()] = None,
@@ -153,7 +159,7 @@ async def by_strategy(
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> list[schemas.BreakdownRow]:
     rows = await _filtered_trade_rows(
-        db, strategy_id=strategy_id, league=league, status=status_,
+        db, strategy_id=strategy_id, account_id=account_id, league=league, status=status_,
         outcome_label=outcome_label, date_from=date_from, date_to=date_to,
     )
     return _to_breakdown(svc.breakdown_by_strategy(rows))
@@ -164,6 +170,7 @@ async def by_league(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     status_: Annotated[TradeStatus | None, Query(alias="status")] = None,
     outcome_label: Annotated[str | None, Query()] = None,
@@ -171,7 +178,7 @@ async def by_league(
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> list[schemas.BreakdownRow]:
     rows = await _filtered_trade_rows(
-        db, strategy_id=strategy_id, league=league, status=status_,
+        db, strategy_id=strategy_id, account_id=account_id, league=league, status=status_,
         outcome_label=outcome_label, date_from=date_from, date_to=date_to,
     )
     return _to_breakdown(svc.breakdown_by_league(rows))
@@ -182,6 +189,7 @@ async def by_outcome(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     status_: Annotated[TradeStatus | None, Query(alias="status")] = None,
     outcome_label: Annotated[str | None, Query()] = None,
@@ -189,7 +197,7 @@ async def by_outcome(
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> list[schemas.BreakdownRow]:
     rows = await _filtered_trade_rows(
-        db, strategy_id=strategy_id, league=league, status=status_,
+        db, strategy_id=strategy_id, account_id=account_id, league=league, status=status_,
         outcome_label=outcome_label, date_from=date_from, date_to=date_to,
     )
     return _to_breakdown(svc.breakdown_by_outcome_label(rows))
@@ -201,12 +209,13 @@ async def rolling(
     db: DbSession,
     window: Annotated[int, Query(ge=2, le=500)] = 20,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     date_from: Annotated[datetime | None, Query()] = None,
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> list[schemas.RollingPoint]:
     rows = await _filtered_trade_rows(
-        db, strategy_id=strategy_id, league=league,
+        db, strategy_id=strategy_id, account_id=account_id, league=league,
         date_from=date_from, date_to=date_to,
     )
     pts = svc.compute_rolling(rows, window=window)
@@ -218,12 +227,13 @@ async def drawdown(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     date_from: Annotated[datetime | None, Query()] = None,
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> schemas.DrawdownSeries:
     rows = await _filtered_trade_rows(
-        db, strategy_id=strategy_id, league=league,
+        db, strategy_id=strategy_id, account_id=account_id, league=league,
         date_from=date_from, date_to=date_to,
     )
     starting = await compute_current_bankroll(db)  # anchor to current is fine here
@@ -253,12 +263,13 @@ async def calendar(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     date_from: Annotated[datetime | None, Query()] = None,
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> schemas.CalendarGrid:
     rows = await _filtered_trade_rows(
-        db, strategy_id=strategy_id, league=league,
+        db, strategy_id=strategy_id, account_id=account_id, league=league,
         date_from=date_from, date_to=date_to,
     )
     grid = svc.compute_calendar_grid(rows)
@@ -284,12 +295,13 @@ async def monte_carlo(
     _user: CurrentUser,
     db: DbSession,
     strategy_id: Annotated[uuid.UUID | None, Query()] = None,
+    account_id: Annotated[uuid.UUID | None, Query()] = None,
     league: Annotated[str | None, Query()] = None,
     date_from: Annotated[datetime | None, Query()] = None,
     date_to: Annotated[datetime | None, Query()] = None,
 ) -> schemas.MonteCarloResponse:
     where = build_trade_where(
-        strategy_id=strategy_id, league=league,
+        strategy_id=strategy_id, account_id=account_id, league=league,
         status=TradeStatus.CLOSED,
         date_from=date_from, date_to=date_to,
     )

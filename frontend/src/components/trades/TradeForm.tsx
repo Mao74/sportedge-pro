@@ -12,15 +12,18 @@ import { CashOutToggle, type CashOutValue } from './CashOutToggle';
 import { DynamicFieldRenderer, type FieldDef } from '@/components/strategies/DynamicFieldRenderer';
 import { MarkdownEditor } from '@/components/notes/MarkdownEditor';
 import { TagPicker } from '@/components/notes/TagPicker';
+import { AccountPicker } from '@/components/accounts/AccountPicker';
 import { ApiError, api } from '@/lib/api';
 import type { StrategyOut } from '@/queries/dashboard';
-import { usePreferences, type MarketType } from '@/queries/preferences';
+import { usePreferences } from '@/queries/preferences';
+import { useAccounts, type Account, type MarketType } from '@/queries/accounts';
 
 const DRAFT_KEY = 'sportedge:trade-draft';
 const DRAFT_INTERVAL_MS = 5_000;
 
 interface TradeDraft {
   strategy_id: string;
+  account_id: string;
   home_team: string;
   away_team: string;
   league: string;
@@ -35,7 +38,7 @@ interface TradeDraft {
   tags: string[];
 }
 
-const DEFAULT_DRAFT: Omit<TradeDraft, 'strategy_id'> = {
+const DEFAULT_DRAFT: Omit<TradeDraft, 'strategy_id' | 'account_id'> = {
   home_team: '',
   away_team: '',
   league: '',
@@ -55,6 +58,18 @@ const DEFAULT_DRAFT: Omit<TradeDraft, 'strategy_id'> = {
   tags: [],
 };
 
+function applyAccountDefaults(
+  draft: Omit<TradeDraft, 'strategy_id' | 'account_id'>,
+  acc: Account | undefined,
+): Omit<TradeDraft, 'strategy_id' | 'account_id'> {
+  if (!acc) return draft;
+  return {
+    ...draft,
+    commission_pct: acc.commission_pct,
+    market_type: acc.market_type,
+  };
+}
+
 interface TradeFormProps {
   strategies: StrategyOut[];
 }
@@ -69,20 +84,29 @@ export function TradeForm({ strategies }: TradeFormProps) {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const fieldSchemaCache = useRef<Map<string, FieldDef[]>>(new Map());
   const prefs = usePreferences();
+  const accountsQ = useAccounts();
+  const activeAccounts = useMemo(
+    () => accountsQ.data?.filter((a) => !a.archived_at) ?? [],
+    [accountsQ.data],
+  );
 
   // Restore draft (or build a fresh one with the trader's defaults).
   useEffect(() => {
-    const fresh: Omit<TradeDraft, 'strategy_id'> = {
-      ...DEFAULT_DRAFT,
-      commission_pct: prefs.data?.default_commission_pct ?? '4.50',
-      market_type: prefs.data?.default_market_type ?? 'exchange',
-    };
+    if (!activeAccounts.length) return;
+    const defaultAccountId =
+      prefs.data?.default_account_id ?? activeAccounts[0]?.id ?? '';
+    const defaultAccount = activeAccounts.find((a) => a.id === defaultAccountId);
+    const fresh = applyAccountDefaults({ ...DEFAULT_DRAFT }, defaultAccount);
+
     const stored = localStorage.getItem(DRAFT_KEY);
     if (stored) {
       try {
         const d = JSON.parse(stored) as TradeDraft;
-        // Backfill market_type for older drafts persisted before the column existed.
         if (!d.market_type) d.market_type = fresh.market_type;
+        // Re-anchor the stored draft to a currently-existing account.
+        if (!d.account_id || !activeAccounts.some((a) => a.id === d.account_id)) {
+          d.account_id = defaultAccountId;
+        }
         if (strategies.some((s) => s.id === d.strategy_id)) {
           setDraft(d);
           return;
@@ -92,9 +116,13 @@ export function TradeForm({ strategies }: TradeFormProps) {
       }
     }
     if (strategies[0]) {
-      setDraft({ strategy_id: strategies[0].id, ...fresh });
+      setDraft({
+        strategy_id: strategies[0].id,
+        account_id: defaultAccountId,
+        ...fresh,
+      });
     }
-  }, [strategies, prefs.data]);
+  }, [strategies, prefs.data, activeAccounts]);
 
   // Auto-save every 5s.
   useEffect(() => {
@@ -137,6 +165,7 @@ export function TradeForm({ strategies }: TradeFormProps) {
     mutationFn: async (d: TradeDraft) => {
       const body: Record<string, unknown> = {
         strategy_id: d.strategy_id,
+        account_id: d.account_id,
         home_team: d.home_team.trim(),
         away_team: d.away_team.trim(),
         league: d.league.trim(),
@@ -179,7 +208,19 @@ export function TradeForm({ strategies }: TradeFormProps) {
   const upd = <K extends keyof TradeDraft>(key: K, value: TradeDraft[K]) =>
     setDraft({ ...draft, [key]: value });
 
+  const onAccountChange = (id: string | null) => {
+    if (!id) return;
+    const acc = activeAccounts.find((a) => a.id === id);
+    setDraft({
+      ...draft,
+      account_id: id,
+      commission_pct: acc?.commission_pct ?? draft.commission_pct,
+      market_type: acc?.market_type ?? draft.market_type,
+    });
+  };
+
   const validateBeforeSubmit = (): string | null => {
+    if (!draft.account_id) return 'Account is required.';
     if (!draft.home_team.trim() || !draft.away_team.trim()) return 'Match teams are required.';
     if (!draft.league.trim()) return 'League is required.';
     if (!draft.kickoff_at) return 'Kickoff time is required.';
@@ -199,6 +240,17 @@ export function TradeForm({ strategies }: TradeFormProps) {
 
   return (
     <div className="space-y-4">
+      {/* Account selector */}
+      {activeAccounts.length > 1 ? (
+        <Card header={<span>Account</span>}>
+          <AccountPicker
+            accounts={activeAccounts}
+            value={draft.account_id || null}
+            onChange={onAccountChange}
+          />
+        </Card>
+      ) : null}
+
       {/* Strategy selector tabs */}
       <div className="flex flex-wrap gap-2">
         {strategies.map((s) => (
@@ -345,11 +397,15 @@ export function TradeForm({ strategies }: TradeFormProps) {
             variant="ghost"
             onClick={() => {
               localStorage.removeItem(DRAFT_KEY);
+              const defaultAccountId =
+                prefs.data?.default_account_id ?? activeAccounts[0]?.id ?? '';
+              const defaultAccount = activeAccounts.find(
+                (a) => a.id === defaultAccountId,
+              );
               setDraft({
                 strategy_id: strategies[0]!.id,
-                ...DEFAULT_DRAFT,
-                commission_pct: prefs.data?.default_commission_pct ?? '4.50',
-                market_type: prefs.data?.default_market_type ?? 'exchange',
+                account_id: defaultAccountId,
+                ...applyAccountDefaults({ ...DEFAULT_DRAFT }, defaultAccount),
               });
               toast.push({ tone: 'info', title: 'Draft cleared.' });
             }}

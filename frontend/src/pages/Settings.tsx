@@ -7,7 +7,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Wallet,
-  SlidersHorizontal,
+  Palette,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -31,17 +31,16 @@ import {
 import {
   useAdjustBankroll,
   useBankrollSnapshots,
-  usePatchPreferences,
-  usePreferences,
-  KNOWN_VENUES,
-  type MarketType,
 } from '@/queries/preferences';
+import { useAccounts } from '@/queries/accounts';
 import { useBankrollCurrent } from '@/queries/dashboard';
 import { useTheme, type ThemeName } from '@/lib/theme';
 import { ApiError } from '@/lib/api';
 import { formatEur, pnlTone } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { DataIoPanel } from '@/components/settings/DataIoPanel';
+import { AccountsPanel } from '@/components/settings/AccountsPanel';
+import { AccountPicker } from '@/components/accounts/AccountPicker';
 import { useUiStore } from '@/stores/ui';
 
 const dateFmt = new Intl.DateTimeFormat('it-IT', {
@@ -59,11 +58,12 @@ export default function Settings() {
         <div className="text-2xs uppercase tracking-widest text-text-tertiary">Settings</div>
         <h1 className="text-2xl font-medium text-text-primary">Settings</h1>
         <p className="text-sm text-text-secondary">
-          Bankroll housekeeping, app preferences, data I/O, Obsidian vault.
+          Accounts, bankroll housekeeping, data I/O, Obsidian vault.
         </p>
       </header>
+      <AccountsPanel />
       <BankrollPanel />
-      <PreferencesPanel />
+      <AppearancePanel />
       <DataIoPanel />
       <ObsidianPanel />
     </div>
@@ -71,12 +71,21 @@ export default function Settings() {
 }
 
 // ---------------------------------------------------------------------------
-// Bankroll
+// Bankroll (per-account)
 // ---------------------------------------------------------------------------
 
 function BankrollPanel() {
-  const current = useBankrollCurrent();
-  const snapshots = useBankrollSnapshots(10);
+  const accountsQ = useAccounts();
+  const accounts = accountsQ.data?.filter((a) => !a.archived_at) ?? [];
+  const [accountId, setAccountId] = useState<string | null>(null);
+
+  // Default the selector to the first active account once they load.
+  useEffect(() => {
+    if (accountId === null && accounts[0]) setAccountId(accounts[0].id);
+  }, [accounts, accountId]);
+
+  const current = useBankrollCurrent(accountId);
+  const snapshots = useBankrollSnapshots(10, accountId);
   const adjust = useAdjustBankroll();
   const toast = useToast();
 
@@ -89,8 +98,12 @@ function BankrollPanel() {
       toast.push({ tone: 'warn', title: 'Amount required', description: 'Enter a positive amount.' });
       return;
     }
+    if (!accountId) {
+      toast.push({ tone: 'warn', title: 'Pick an account first.' });
+      return;
+    }
     adjust.mutate(
-      { amount_eur: amount, kind, notes: notes.trim() || undefined },
+      { amount_eur: amount, kind, notes: notes.trim() || undefined, account_id: accountId },
       {
         onSuccess: () => {
           toast.push({
@@ -116,11 +129,15 @@ function BankrollPanel() {
             <Wallet size={14} strokeWidth={1.5} />
             Bankroll
           </span>
-          <span className="text-xs text-text-tertiary">Deposits, withdrawals, and recent snapshots.</span>
+          <span className="text-xs text-text-tertiary">Deposits, withdrawals, and recent snapshots — per account.</span>
         </>
       }
     >
       <div className="space-y-5">
+        {accounts.length > 0 ? (
+          <AccountPicker accounts={accounts} value={accountId} onChange={setAccountId} />
+        ) : null}
+
         <div className="flex items-baseline justify-between rounded-lg border border-border-subtle bg-bg-overlay px-4 py-3">
           <div>
             <div className="text-2xs uppercase tracking-widest text-text-tertiary">Current balance</div>
@@ -246,191 +263,52 @@ function BankrollPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Preferences (theme + exchange + commission)
+// Appearance (theme only — venue/commission moved to AccountsPanel)
 // ---------------------------------------------------------------------------
 
-function PreferencesPanel() {
-  const prefs = usePreferences();
-  const patch = usePatchPreferences();
+function AppearancePanel() {
   const [theme, setTheme] = useTheme();
-  const toast = useToast();
-
-  const [commissionDraft, setCommissionDraft] = useState('');
-  const [venue, setVenue] = useState('');
-  const [marketType, setMarketType] = useState<MarketType>('exchange');
-
-  useEffect(() => {
-    if (prefs.data) {
-      setCommissionDraft(prefs.data.default_commission_pct);
-      setVenue(prefs.data.betting_exchange);
-      setMarketType(prefs.data.default_market_type);
-    }
-  }, [prefs.data]);
-
-  if (prefs.isLoading || !prefs.data) {
-    return (
-      <Card><Skeleton height={180} /></Card>
-    );
-  }
-
-  const dirty =
-    commissionDraft !== prefs.data.default_commission_pct ||
-    venue !== prefs.data.betting_exchange ||
-    marketType !== prefs.data.default_market_type;
-
-  const save = () =>
-    patch.mutate(
-      {
-        default_commission_pct: commissionDraft,
-        betting_exchange: venue,
-        default_market_type: marketType,
-      },
-      {
-        onSuccess: () => toast.push({ tone: 'success', title: 'Preferences saved.' }),
-        onError: (err) => {
-          const msg = err instanceof ApiError ? err.problem.detail || err.problem.title : 'Failed.';
-          toast.push({ tone: 'error', title: 'Save failed.', description: msg });
-        },
-      },
-    );
-
-  const onVenueChange = (next: string) => {
-    setVenue(next);
-    // Suggest the typical market_type + commission for that venue — but
-    // only when the user hasn't already overridden them.
-    const known = KNOWN_VENUES.find((k) => k.value === next);
-    if (!known) return;
-    if (commissionDraft === prefs.data.default_commission_pct) {
-      setCommissionDraft(known.default_commission);
-    }
-    if (marketType === prefs.data.default_market_type) {
-      setMarketType(known.market_type);
-    }
-  };
-
-  // When the user flips Exchange ↔ Classic manually, force commission to a
-  // sensible value: 0% for classic (since commission is irrelevant) and
-  // the current draft otherwise.
-  const onMarketTypeChange = (next: MarketType) => {
-    setMarketType(next);
-    if (next === 'classic') setCommissionDraft('0.00');
-  };
 
   return (
     <Card
       header={
         <>
           <span className="flex items-center gap-2 text-text-primary">
-            <SlidersHorizontal size={14} strokeWidth={1.5} />
-            Preferences
+            <Palette size={14} strokeWidth={1.5} />
+            Appearance
           </span>
-          <span className="text-xs text-text-tertiary">Theme, venue, market type, default commission.</span>
+          <span className="text-xs text-text-tertiary">Theme preference.</span>
         </>
       }
     >
-      <div className="space-y-5">
-        {/* Theme picker */}
-        <div className="space-y-2">
-          <span className="text-2xs uppercase tracking-widest text-text-tertiary">Theme</span>
-          <Segmented<ThemeName>
-            value={theme}
-            onChange={setTheme}
-            options={[
-              { value: 'dark', label: '🌙 Dark' },
-              { value: 'light', label: '☀️ Light' },
-            ]}
-          />
-          <p className="text-xs text-text-tertiary">
-            {theme === 'dark' ? (
-              <span className="inline-flex items-center gap-1">
-                <Moon size={11} strokeWidth={1.5} /> Trader-grade default.
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1">
-                <Sun size={11} strokeWidth={1.5} /> High-contrast daytime palette.
-              </span>
-            )}
-          </p>
-        </div>
-
-        {/* Market type picker */}
-        <div className="space-y-2">
-          <span className="text-2xs uppercase tracking-widest text-text-tertiary">Default market type</span>
-          <Segmented<MarketType>
-            value={marketType}
-            onChange={onMarketTypeChange}
-            options={[
-              { value: 'exchange', label: 'Exchange (apply commission)' },
-              { value: 'classic',  label: 'Classic (no commission)' },
-            ]}
-          />
-          <p className="text-xs text-text-tertiary">
-            {marketType === 'exchange'
-              ? 'Commission is applied to winning P/L (Betfair, Smarkets, …).'
-              : 'No commission — quoted odds are already net (Snai, Bet365, …).'}
-          </p>
-        </div>
-
-        {/* Venue picker */}
-        <label className="flex flex-col gap-1.5">
-          <span className="text-2xs uppercase tracking-widest text-text-tertiary">
-            Default venue
-          </span>
-          <select
-            value={KNOWN_VENUES.some((k) => k.value === venue) ? venue : 'other'}
-            onChange={(e) => onVenueChange(e.target.value)}
-            className="h-9 rounded-lg border border-border-subtle bg-bg-overlay px-3 text-sm text-text-primary outline-none focus:border-border-focus focus:ring-2 focus:ring-accent-brand-bg"
-          >
-            <optgroup label="Betting exchanges">
-              {KNOWN_VENUES.filter((k) => k.market_type === 'exchange' && k.value !== 'other').map((k) => (
-                <option key={k.value} value={k.value}>{k.label}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Classic bookmakers">
-              {KNOWN_VENUES.filter((k) => k.market_type === 'classic').map((k) => (
-                <option key={k.value} value={k.value}>{k.label}</option>
-              ))}
-            </optgroup>
-            <option value="other">Other</option>
-          </select>
-          <span className="text-xs text-text-tertiary">
-            Picking a venue pre-fills its typical market type and commission.
-          </span>
-        </label>
-
-        <NumberInput
-          label="Default commission (%)"
-          step="0.01"
-          min="0"
-          max="100"
-          value={commissionDraft}
-          onChange={(e) => setCommissionDraft(e.target.value)}
-          suffix="%"
-          disabled={marketType === 'classic'}
-          hint={
-            marketType === 'classic'
-              ? 'Disabled — Classic markets have no commission.'
-              : 'Applied to new trades. Existing trades keep their original commission.'
-          }
+      <div className="space-y-2">
+        <span className="text-2xs uppercase tracking-widest text-text-tertiary">Theme</span>
+        <Segmented<ThemeName>
+          value={theme}
+          onChange={setTheme}
+          options={[
+            { value: 'dark', label: '🌙 Dark' },
+            { value: 'light', label: '☀️ Light' },
+          ]}
         />
-
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            disabled={!dirty}
-            loading={patch.isPending}
-            onClick={save}
-          >
-            Save preferences
-          </Button>
-        </div>
+        <p className="text-xs text-text-tertiary">
+          {theme === 'dark' ? (
+            <span className="inline-flex items-center gap-1">
+              <Moon size={11} strokeWidth={1.5} /> Trader-grade default.
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <Sun size={11} strokeWidth={1.5} /> High-contrast daytime palette.
+            </span>
+          )}
+        </p>
       </div>
     </Card>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Obsidian (unchanged behaviour, moved to last position)
+// Obsidian (unchanged behaviour)
 // ---------------------------------------------------------------------------
 
 function ObsidianPanel() {

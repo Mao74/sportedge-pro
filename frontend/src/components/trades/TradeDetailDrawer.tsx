@@ -15,6 +15,14 @@ import { cn } from '@/lib/cn';
 import { ApiError } from '@/lib/api';
 import { useToast } from '@/components/primitives';
 import { useDeleteTrade, usePatchTrade, useTradeDetail } from '@/queries/trade_detail';
+import { useAccounts } from '@/queries/accounts';
+
+function AccountChip({ accountId }: { accountId: string }) {
+  const { data } = useAccounts({ includeArchived: true });
+  const acc = data?.find((a) => a.id === accountId);
+  if (!acc) return null;
+  return <Chip tone="info">{acc.name}</Chip>;
+}
 
 type Tab = 'overview' | 'notes' | 'history';
 
@@ -147,6 +155,7 @@ export function TradeDetailDrawer({ tradeId, open, onClose }: DrawerProps) {
               <Chip tone="brand" dot={trade.strategy.color_hex ?? true}>
                 {trade.strategy.name}
               </Chip>
+              <AccountChip accountId={trade.account_id} />
               <Chip>{trade.pnl_mode}</Chip>
               {trade.outcome_label ? <Chip tone="info">{trade.outcome_label}</Chip> : null}
               <Chip tone={trade.status === 'OPEN' ? 'info' : 'neutral'}>{trade.status}</Chip>

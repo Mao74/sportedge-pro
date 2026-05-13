@@ -8,13 +8,19 @@ import { useEffect, useState } from 'react';
 import { Calculator } from 'lucide-react';
 import { Card, NumberInput, Segmented } from '@/components/primitives';
 import { useWhatIfCashout } from '@/queries/analytics';
-import { usePreferences, type MarketType } from '@/queries/preferences';
+import { usePreferences } from '@/queries/preferences';
+import { useAccounts, type MarketType } from '@/queries/accounts';
+import { AccountPicker } from '@/components/accounts/AccountPicker';
 import { formatEur, formatPercent, pnlTone } from '@/lib/format';
 
 type Side = 'back' | 'lay';
 
 export default function WhatIf() {
   const prefs = usePreferences();
+  const accountsQ = useAccounts();
+  const activeAccounts = accountsQ.data?.filter((a) => !a.archived_at) ?? [];
+  const [accountId, setAccountId] = useState<string | null>(null);
+
   const [stake, setStake] = useState('100');
   const [originalOdds, setOriginalOdds] = useState('3.00');
   const [cashoutOdds, setCashoutOdds] = useState('1.50');
@@ -22,12 +28,27 @@ export default function WhatIf() {
   const [commission, setCommission] = useState('5.00');
   const [marketType, setMarketType] = useState<MarketType>('exchange');
 
-  // Seed commission + market type from preferences once they're loaded.
+  // Seed commission + market type from the default account once loaded.
   useEffect(() => {
-    if (!prefs.data) return;
-    setCommission(prefs.data.default_commission_pct);
-    setMarketType(prefs.data.default_market_type);
-  }, [prefs.data]);
+    if (!activeAccounts.length) return;
+    if (accountId) return; // user has already picked one
+    const seedId = prefs.data?.default_account_id ?? activeAccounts[0]?.id ?? null;
+    setAccountId(seedId);
+    const seed = activeAccounts.find((a) => a.id === seedId);
+    if (seed) {
+      setCommission(seed.commission_pct);
+      setMarketType(seed.market_type);
+    }
+  }, [prefs.data, activeAccounts, accountId]);
+
+  const onAccountChange = (id: string | null) => {
+    setAccountId(id);
+    const acc = activeAccounts.find((a) => a.id === id);
+    if (acc) {
+      setCommission(acc.commission_pct);
+      setMarketType(acc.market_type);
+    }
+  };
 
   const mutation = useWhatIfCashout();
   const [result, setResult] = useState<Awaited<ReturnType<typeof mutation.mutateAsync>> | null>(null);
@@ -68,6 +89,16 @@ export default function WhatIf() {
           the cashout odds to see how the locked-in P/L moves.
         </p>
       </header>
+
+      {activeAccounts.length > 1 ? (
+        <Card header={<span>Seed from account</span>}>
+          <AccountPicker
+            accounts={activeAccounts}
+            value={accountId}
+            onChange={onAccountChange}
+          />
+        </Card>
+      ) : null}
 
       <Card>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

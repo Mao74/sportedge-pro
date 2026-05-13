@@ -4,8 +4,8 @@ import { Card, Skeleton } from '@/components/primitives';
 import { formatEur, formatPercent, pnlTone } from '@/lib/format';
 import { useByStrategy, useStrategies } from '@/queries/dashboard';
 
-export function ByStrategyCard() {
-  const { data: rows, isLoading } = useByStrategy();
+export function ByStrategyCard({ accountId }: { accountId?: string | null } = {}) {
+  const { data: rows, isLoading } = useByStrategy(accountId);
   const { data: strategies } = useStrategies();
 
   const colorBySlug = new Map<string, string>();

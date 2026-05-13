@@ -42,7 +42,23 @@ from app.services.strategy_templates import all_templates
 _TABLES_TO_TRUNCATE = [
     "trade_tags", "tags", "trades", "strategies", "users",
     "bankroll_snapshots", "daily_reflections", "whatif_scratch",
-    "obsidian_conflicts", "app_settings",
+    "obsidian_conflicts", "app_settings", "accounts",
+]
+
+
+# Seed accounts re-inserted before every test so existing single-account
+# fixtures keep working transparently. Only Betfair is seeded — opening
+# balance matches Settings.default_starting_bankroll so the legacy bankroll
+# tests still see the expected starting balance. Tests that need a second
+# account create it explicitly via POST /accounts.
+_SEED_ACCOUNTS = [
+    {
+        "name": "Betfair",
+        "venue": "betfair",
+        "market_type": "exchange",
+        "commission_pct": "5.00",
+        "opening_balance": "1000.00",
+    },
 ]
 
 
@@ -85,6 +101,28 @@ async def _reset_db() -> None:
                         "field_schema": json.dumps(tpl.field_schema),
                     },
                 )
+            for acct in _SEED_ACCOUNTS:
+                await conn.execute(
+                    text(
+                        """
+                        INSERT INTO accounts
+                            (name, venue, market_type, commission_pct, opening_balance)
+                        VALUES
+                            (:name, :venue, CAST(:market_type AS market_type),
+                             :commission_pct, :opening_balance)
+                        """
+                    ),
+                    acct,
+                )
+            # Re-create the single-row app_settings pointing at Betfair.
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO app_settings (default_account_id)
+                    SELECT id FROM accounts WHERE name = 'Betfair' LIMIT 1
+                    """
+                )
+            )
     finally:
         await engine.dispose()
 

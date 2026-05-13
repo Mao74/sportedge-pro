@@ -14,6 +14,7 @@ export interface BankrollCurrent {
   last_snapshot_at: string | null;
   since_inception_pnl_eur: string;
   since_inception_roi_pct: string;
+  account_id: string | null;
 }
 
 export interface BankrollSeriesPoint {
@@ -24,17 +25,28 @@ export interface BankrollSeriesPoint {
 
 export type BankrollRange = '7d' | '30d' | '90d' | 'all';
 
-export function useBankrollCurrent() {
+export function useBankrollCurrent(accountId?: string | null) {
   return useQuery({
-    queryKey: ['bankroll', 'current'],
-    queryFn: () => api.get<BankrollCurrent>('/bankroll/current'),
+    queryKey: ['bankroll', 'current', accountId ?? null],
+    queryFn: () =>
+      api.get<BankrollCurrent>(
+        '/bankroll/current',
+        accountId ? { account_id: accountId } : undefined,
+      ),
   });
 }
 
-export function useBankrollSeries(range: BankrollRange = '30d') {
+export function useBankrollSeries(
+  range: BankrollRange = '30d',
+  accountId?: string | null,
+) {
   return useQuery({
-    queryKey: ['bankroll', 'series', range],
-    queryFn: () => api.get<BankrollSeriesPoint[]>('/bankroll/series', { range }),
+    queryKey: ['bankroll', 'series', range, accountId ?? null],
+    queryFn: () =>
+      api.get<BankrollSeriesPoint[]>(
+        '/bankroll/series',
+        accountId ? { range, account_id: accountId } : { range },
+      ),
   });
 }
 
@@ -51,10 +63,14 @@ export interface AnalyticsSummary {
   max_drawdown_eur: string;
 }
 
-export function useAnalyticsSummary() {
+export function useAnalyticsSummary(accountId?: string | null) {
   return useQuery({
-    queryKey: ['analytics', 'summary'],
-    queryFn: () => api.get<AnalyticsSummary>('/analytics/summary'),
+    queryKey: ['analytics', 'summary', accountId ?? null],
+    queryFn: () =>
+      api.get<AnalyticsSummary>(
+        '/analytics/summary',
+        accountId ? { account_id: accountId } : undefined,
+      ),
   });
 }
 
@@ -69,10 +85,14 @@ export interface BreakdownRow {
   win_rate_pct: string;
 }
 
-export function useByStrategy() {
+export function useByStrategy(accountId?: string | null) {
   return useQuery({
-    queryKey: ['analytics', 'by-strategy'],
-    queryFn: () => api.get<BreakdownRow[]>('/analytics/by-strategy'),
+    queryKey: ['analytics', 'by-strategy', accountId ?? null],
+    queryFn: () =>
+      api.get<BreakdownRow[]>(
+        '/analytics/by-strategy',
+        accountId ? { account_id: accountId } : undefined,
+      ),
   });
 }
 
@@ -90,6 +110,7 @@ export interface TradeStrategyEmbed {
 export interface TradeListItem {
   id: string;
   strategy: TradeStrategyEmbed;
+  account_id: string;
   home_team: string;
   away_team: string;
   league: string;
@@ -120,14 +141,15 @@ export interface TradeListResponse {
   aggregates: TradeAggregates;
 }
 
-export function useOpenTrades(limit = 10) {
+export function useOpenTrades(limit = 10, accountId?: string | null) {
   return useQuery({
-    queryKey: ['trades', 'open', limit],
+    queryKey: ['trades', 'open', limit, accountId ?? null],
     queryFn: () =>
       api.get<TradeListResponse>('/trades', {
         status: 'OPEN',
         page_size: limit,
         sort: '-kickoff_at',
+        ...(accountId ? { account_id: accountId } : {}),
       }),
   });
 }

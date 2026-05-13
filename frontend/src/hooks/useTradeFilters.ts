@@ -26,6 +26,7 @@ export function useTradeFilters(): {
     const f: TradeFilters = {};
     const get = (k: string) => params.get(k) || undefined;
     f.strategy_id = get('strategy_id');
+    f.account_id = get('account_id');
     f.league = get('league');
     f.outcome_label = get('outcome_label');
     f.q = get('q');

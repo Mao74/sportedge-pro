@@ -4,6 +4,8 @@ import { AnimatedMetric } from '@/components/dashboard/AnimatedMetric';
 import { ByStrategyCard } from '@/components/dashboard/ByStrategyCard';
 import { OpenTradesCard } from '@/components/dashboard/OpenTradesCard';
 import { EquityCurve } from '@/components/analytics/EquityCurve';
+import { AccountPicker } from '@/components/accounts/AccountPicker';
+import { useAccounts } from '@/queries/accounts';
 import { pnlTone, formatEur } from '@/lib/format';
 import {
   type BankrollRange,
@@ -14,9 +16,13 @@ import {
 
 export default function Dashboard() {
   const [range, setRange] = useState<BankrollRange>('30d');
-  const bankroll = useBankrollCurrent();
-  const summary = useAnalyticsSummary();
-  const series = useBankrollSeries(range);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const accountsQ = useAccounts();
+  const accounts = accountsQ.data?.filter((a) => !a.archived_at) ?? [];
+
+  const bankroll = useBankrollCurrent(accountId);
+  const summary = useAnalyticsSummary(accountId);
+  const series = useBankrollSeries(range, accountId);
 
   // Sparklines for the metric cards: balance, daily P/L, ROI, win rate are derived
   // from the same daily series — keeps a single source of truth.
@@ -39,6 +45,15 @@ export default function Dashboard() {
           <div className="text-2xs uppercase tracking-widest text-text-tertiary">Dashboard</div>
           <h1 className="text-2xl font-medium text-text-primary">Today's snapshot</h1>
         </div>
+        {accounts.length > 1 ? (
+          <AccountPicker
+            accounts={accounts}
+            value={accountId}
+            onChange={setAccountId}
+            includeAll
+            size="sm"
+          />
+        ) : null}
       </header>
 
       {/* Hero metric row */}
@@ -122,8 +137,8 @@ export default function Dashboard() {
 
       {/* Open trades + by-strategy */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <OpenTradesCard />
-        <ByStrategyCard />
+        <OpenTradesCard accountId={accountId} />
+        <ByStrategyCard accountId={accountId} />
       </div>
     </div>
   );

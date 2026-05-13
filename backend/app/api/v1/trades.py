@@ -15,7 +15,9 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.problem_details import not_found, unprocessable
-from app.models import PnLMode, Strategy, Tag, Trade, TradeStatus, TradeTag
+from app.models import Account, PnLMode, Strategy, Tag, Trade, TradeStatus, TradeTag
+from app.services.account_service import get_account
+from app.services.obsidian.sync import get_or_create_settings
 from app.schemas.csv_io import CsvImportResult
 from app.schemas.trade import (
     TagAttachRequest,
@@ -70,6 +72,25 @@ async def _load_strategy(db: AsyncSession, strategy_id: uuid.UUID) -> Strategy:
     if s is None:
         raise not_found(f"Strategy {strategy_id} does not exist.")
     return s
+
+
+async def _load_account(
+    db: AsyncSession, account_id: uuid.UUID | None
+) -> Account:
+    """Resolve the account for a trade. Falls back to
+    ``app_settings.default_account_id`` when ``account_id`` is None
+    (back-compat with single-account clients)."""
+    if account_id is None:
+        settings = await get_or_create_settings(db)
+        if settings.default_account_id is None:
+            raise unprocessable(
+                "No account_id supplied and no default account configured."
+            )
+        account_id = settings.default_account_id
+    acc = await get_account(db, account_id)
+    if acc is None:
+        raise not_found(f"Account {account_id} does not exist.")
+    return acc
 
 
 def _validate_strategy_data_or_raise(
@@ -154,6 +175,7 @@ async def create_trade(
     payload: TradeCreate, _user: CurrentUser, db: DbSession
 ) -> TradeOut:
     strategy = await _load_strategy(db, payload.strategy_id)
+    account = await _load_account(db, payload.account_id)
 
     # Merge top-level position_side into strategy_data so PnL calc + DB persist see it.
     strategy_data = dict(payload.strategy_data or {})
@@ -164,6 +186,7 @@ async def create_trade(
 
     trade = Trade(
         strategy_id=strategy.id,
+        account_id=account.id,
         sport=payload.sport,
         home_team=payload.home_team,
         away_team=payload.away_team,
@@ -230,6 +253,12 @@ async def update_trade(
     new_strategy = trade.strategy
     if "strategy_id" in data and data["strategy_id"] != trade.strategy_id:
         new_strategy = await _load_strategy(db, data["strategy_id"])
+
+    # If account_id changes, validate new account exists.
+    if "account_id" in data and data["account_id"] is not None:
+        new_acc = await _load_account(db, data["account_id"])
+        # accept; setattr below will write it
+        data["account_id"] = new_acc.id
 
     # Merge position_side into strategy_data before validation. If the caller
     # replaces strategy_data without explicitly touching position_side, we

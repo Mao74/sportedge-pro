@@ -14,6 +14,7 @@ export type SortKey = '-kickoff_at' | 'kickoff_at' | 'pnl' | '-pnl' | 'stake' | 
 
 export interface TradeFilters {
   strategy_id?: string;
+  account_id?: string;
   league?: string;
   status?: TradeStatusFilter;
   outcome_label?: string;

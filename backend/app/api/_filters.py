@@ -17,6 +17,7 @@ from app.models import PnLMode, Tag, Trade, TradeStatus, TradeTag
 def build_trade_where(
     *,
     strategy_id: uuid.UUID | None = None,
+    account_id: uuid.UUID | None = None,
     league: str | None = None,
     status: TradeStatus | None = None,
     outcome_label: str | None = None,
@@ -33,6 +34,8 @@ def build_trade_where(
     conditions = []
     if strategy_id is not None:
         conditions.append(Trade.strategy_id == strategy_id)
+    if account_id is not None:
+        conditions.append(Trade.account_id == account_id)
     if league is not None:
         conditions.append(Trade.league == league)
     if status is not None:

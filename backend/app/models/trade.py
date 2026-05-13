@@ -63,6 +63,11 @@ class Trade(Base, TimestampMixin):
         ForeignKey("strategies.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
 
     # Match metadata
     sport: Mapped[str] = mapped_column(String, nullable=False, server_default="football")
@@ -117,6 +122,9 @@ class Trade(Base, TimestampMixin):
 
     strategy: Mapped["Strategy"] = relationship(  # noqa: F821 — forward ref
         back_populates="trades", lazy="joined"
+    )
+    account: Mapped["Account"] = relationship(  # noqa: F821 — forward ref
+        lazy="joined"
     )
     tags: Mapped[list["Tag"]] = relationship(  # noqa: F821 — forward ref
         secondary="trade_tags",

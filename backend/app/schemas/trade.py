@@ -60,6 +60,10 @@ class TradeBase(BaseModel):
 
 class TradeCreate(TradeBase):
     strategy_id: uuid.UUID
+    # account_id is optional: when omitted the API falls back to
+    # app_settings.default_account_id. This keeps older clients (frontend
+    # not yet multi-account aware) working.
+    account_id: uuid.UUID | None = None
     status: TradeStatus = TradeStatus.OPEN
     closed_at: datetime | None = None
     tags: list[str] = Field(default_factory=list)
@@ -75,6 +79,7 @@ class TradeUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     strategy_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
 
     sport: str | None = None
     home_team: str | None = Field(default=None, min_length=1, max_length=128)
@@ -140,6 +145,7 @@ class _StrategyEmbed(BaseModel):
 class TradeOut(BaseModel):
     id: uuid.UUID
     strategy: _StrategyEmbed
+    account_id: uuid.UUID
     sport: str
     home_team: str
     away_team: str
