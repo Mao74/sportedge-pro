@@ -26,6 +26,8 @@ node_modules/
 .vite/
 .cache/
 frontend/dist/
+frontend/dist-types/
+*.tsbuildinfo
 
 # IDE / OS
 .vscode/
