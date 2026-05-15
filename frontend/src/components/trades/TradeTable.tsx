@@ -79,25 +79,44 @@ export function TradeTable({
       {
         id: 'match',
         header: 'Match',
-        accessorFn: (r) => `${r.home_team} vs ${r.away_team}`,
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2 min-w-0">
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: row.original.strategy.color_hex ?? 'var(--accent-brand)' }}
-              aria-hidden
-            />
-            <div className="min-w-0">
-              <div className="truncate text-sm text-text-primary">
-                {row.original.home_team} <span className="text-text-tertiary">vs</span>{' '}
-                {row.original.away_team}
-              </div>
-              <div className="truncate text-xs text-text-tertiary">
-                {row.original.league} · {row.original.strategy.name}
+        accessorFn: (r) =>
+          r.away_team ? `${r.home_team} vs ${r.away_team}` : r.home_team,
+        cell: ({ row }) => {
+          const isMultiple = (row.original.n_selections ?? 1) > 1;
+          return (
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: row.original.strategy.color_hex ?? 'var(--accent-brand)' }}
+                aria-hidden
+              />
+              <div className="min-w-0">
+                <div className="truncate text-sm text-text-primary">
+                  {row.original.away_team ? (
+                    <>
+                      {row.original.home_team}{' '}
+                      <span className="text-text-tertiary">vs</span>{' '}
+                      {row.original.away_team}
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span>🎯</span>
+                      {row.original.home_team}
+                      {isMultiple ? (
+                        <span className="rounded-full bg-bg-overlay px-1.5 py-0.5 text-2xs font-medium text-text-tertiary">
+                          x{row.original.n_selections}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                </div>
+                <div className="truncate text-xs text-text-tertiary">
+                  {row.original.league} · {row.original.strategy.name}
+                </div>
               </div>
             </div>
-          </div>
-        ),
+          );
+        },
         enableSorting: false,
       },
       {

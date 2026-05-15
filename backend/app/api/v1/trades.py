@@ -207,6 +207,7 @@ async def create_trade(
         away_team=payload.away_team,
         league=payload.league,
         kickoff_at=payload.kickoff_at,
+        n_selections=payload.n_selections,
         ht_score_home=payload.ht_score_home,
         ht_score_away=payload.ht_score_away,
         ft_score_home=payload.ft_score_home,

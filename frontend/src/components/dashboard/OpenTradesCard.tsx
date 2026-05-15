@@ -53,7 +53,13 @@ export function OpenTradesCard({ accountId }: { accountId?: string | null } = {}
                 />
                 <div className="flex-1 min-w-0">
                   <div className="truncate text-sm text-text-primary">
-                    {t.home_team} <span className="text-text-tertiary">vs</span> {t.away_team}
+                    {t.away_team ? (
+                      <>
+                        {t.home_team} <span className="text-text-tertiary">vs</span> {t.away_team}
+                      </>
+                    ) : (
+                      <>🎯 {t.home_team}</>
+                    )}
                   </div>
                   <div className="text-xs text-text-tertiary">
                     {t.league} · {dateFmt.format(new Date(t.kickoff_at))}

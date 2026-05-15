@@ -112,7 +112,8 @@ export interface TradeListItem {
   strategy: TradeStrategyEmbed;
   account_id: string;
   home_team: string;
-  away_team: string;
+  away_team: string | null;
+  n_selections: number;
   league: string;
   kickoff_at: string;
   stake_total: string;

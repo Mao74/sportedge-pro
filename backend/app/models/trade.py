@@ -72,9 +72,15 @@ class Trade(Base, TimestampMixin):
     # Match metadata
     sport: Mapped[str] = mapped_column(String, nullable=False, server_default="football")
     home_team: Mapped[str] = mapped_column(String, nullable=False)
-    away_team: Mapped[str] = mapped_column(String, nullable=False)
+    # away_team is null for multiples (n_selections > 1) — the journal
+    # records the combined trade as one row.
+    away_team: Mapped[str | None] = mapped_column(String, nullable=True)
     league: Mapped[str] = mapped_column(String, nullable=False)
     kickoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Number of legs in the bet slip. 1 = single, ≥2 = multiple / parlay.
+    n_selections: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
 
     # Scores
     ht_score_home: Mapped[int | None] = mapped_column(Integer, nullable=True)

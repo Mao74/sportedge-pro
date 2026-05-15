@@ -43,11 +43,17 @@ def _decimal_to_yaml(v: Decimal | None) -> str | float | None:
 
 
 def trade_filename(trade: Trade) -> str:
-    """``YYYY-MM-DD home vs away.md`` — the docs' canonical naming rule."""
+    """``YYYY-MM-DD home vs away.md`` — the docs' canonical naming rule.
+
+    For multiples (away_team is null) the filename collapses to
+    ``YYYY-MM-DD <home_team>.md`` since there is no away side.
+    """
     date_part = trade.kickoff_at.date().isoformat()
     safe_home = trade.home_team.replace("/", "-")
-    safe_away = trade.away_team.replace("/", "-")
-    return f"{date_part} {safe_home} vs {safe_away}.md"
+    if trade.away_team:
+        safe_away = trade.away_team.replace("/", "-")
+        return f"{date_part} {safe_home} vs {safe_away}.md"
+    return f"{date_part} {safe_home}.md"
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +71,11 @@ def render_trade(
         extract_user_editable(existing_text) if existing_text else None
     ) or _initial_user_block(trade)
 
+    match_label = (
+        f"{trade.home_team} vs {trade.away_team}"
+        if trade.away_team
+        else trade.home_team
+    )
     fm = {
         "trade_id": str(trade.id),
         "app_managed": True,
@@ -73,7 +84,8 @@ def render_trade(
         "strategy_color": trade.strategy.color_hex,
         "account": trade.account.name if trade.account else None,
         "account_venue": trade.account.venue if trade.account else None,
-        "match": f"{trade.home_team} vs {trade.away_team}",
+        "match": match_label,
+        "n_selections": trade.n_selections,
         "league": trade.league,
         "kickoff": _isoformat(trade.kickoff_at),
         "stake_total": _decimal_to_yaml(trade.stake_total),
@@ -100,7 +112,7 @@ def render_trade(
     elif trade.ht_score_home is not None and trade.ht_score_away is not None:
         score_line = f"HT {trade.ht_score_home}-{trade.ht_score_away}"
 
-    body = f"""# {trade.home_team} vs {trade.away_team}
+    body = f"""# {match_label}
 *{trade.league} · {trade.kickoff_at.strftime("%-d %b %Y · %H:%M") if hasattr(trade.kickoff_at, 'strftime') else trade.kickoff_at}*
 
 > [!info] Result: **{pnl_signed}**{f" · {trade.outcome_label}" if trade.outcome_label else ""}{f" · {score_line}" if score_line else ""}

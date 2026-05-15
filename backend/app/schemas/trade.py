@@ -28,9 +28,14 @@ class TradeBase(BaseModel):
 
     sport: str = "football"
     home_team: str = Field(min_length=1, max_length=128)
-    away_team: str = Field(min_length=1, max_length=128)
+    # Optional: null for multiples (n_selections > 1). For singles the
+    # frontend always supplies a value; we keep it permissive here so
+    # POST /trades doesn't need to know the bet shape upfront.
+    away_team: str | None = Field(default=None, max_length=128)
     league: str = Field(min_length=1, max_length=128)
     kickoff_at: datetime
+    # Bet-slip size: 1 = single, ≥2 = multiple / parlay.
+    n_selections: int = Field(default=1, ge=1, le=20)
 
     ht_score_home: int | None = Field(default=None, ge=0, le=99)
     ht_score_away: int | None = Field(default=None, ge=0, le=99)
@@ -83,9 +88,10 @@ class TradeUpdate(BaseModel):
 
     sport: str | None = None
     home_team: str | None = Field(default=None, min_length=1, max_length=128)
-    away_team: str | None = Field(default=None, min_length=1, max_length=128)
+    away_team: str | None = Field(default=None, max_length=128)
     league: str | None = Field(default=None, min_length=1, max_length=128)
     kickoff_at: datetime | None = None
+    n_selections: int | None = Field(default=None, ge=1, le=20)
 
     ht_score_home: int | None = Field(default=None, ge=0, le=99)
     ht_score_away: int | None = Field(default=None, ge=0, le=99)
@@ -148,9 +154,10 @@ class TradeOut(BaseModel):
     account_id: uuid.UUID
     sport: str
     home_team: str
-    away_team: str
+    away_team: str | None
     league: str
     kickoff_at: datetime
+    n_selections: int
     ht_score_home: int | None
     ht_score_away: int | None
     ft_score_home: int | None
@@ -214,15 +221,26 @@ class TagAttachRequest(BaseModel):
 
 
 def _check_mode_specific(model) -> Any:
+    """Mode-specific consistency.
+
+    Relaxed for OPEN trades (TradeCreate): the journal is meant to be
+    filled in before the match resolves, so AUTO outcome / CASHOUT_ODDS
+    cashout_odds may legitimately be unknown at create time. MANUAL still
+    requires its PnL (the trader picked MANUAL precisely to write it in).
+    TradeClose stays strict — closing always needs the resolution.
+    """
     mode = model.pnl_mode
+    status = getattr(model, "status", None)
+    is_closing = isinstance(model, TradeClose) or status is TradeStatus.CLOSED
+
     if mode is PnLMode.MANUAL and model.manual_pnl_eur is None:
         raise ValueError("MANUAL mode requires manual_pnl_eur.")
-    if mode is PnLMode.CASHOUT_ODDS:
+    if mode is PnLMode.CASHOUT_ODDS and is_closing:
         if model.cashout_odds is None:
             raise ValueError("CASHOUT_ODDS mode requires cashout_odds.")
         if model.position_side is None:
             raise ValueError("CASHOUT_ODDS mode requires position_side.")
-    if mode is PnLMode.AUTO:
+    if mode is PnLMode.AUTO and is_closing:
         if model.position_side is None:
             raise ValueError("AUTO mode requires position_side.")
         if not model.outcome_label:

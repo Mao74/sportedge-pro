@@ -111,7 +111,7 @@ def export_trades_csv(trades: Iterable[Trade]) -> str:
             t.strategy.slug if t.strategy else "",
             t.account.name if t.account else "",
             t.home_team,
-            t.away_team,
+            t.away_team or "",
             t.league,
             _dec(t.stake_total),
             _dec(t.avg_odds),
@@ -263,7 +263,7 @@ def _parse_row(row: dict[str, str]) -> dict:
         "strategy_slug":    (row.get("strategy_slug") or "").strip(),
         "account_name":     (row.get("account_name") or "").strip(),
         "home_team":        (row.get("home_team") or "").strip(),
-        "away_team":        (row.get("away_team") or "").strip(),
+        "away_team":        (row.get("away_team") or "").strip() or None,
         "league":           (row.get("league") or "").strip(),
         "stake_total":      _parse_dec(row.get("stake_total", "")),
         "avg_odds":         _parse_dec(row.get("avg_odds", "")),
@@ -284,8 +284,8 @@ def _parse_row(row: dict[str, str]) -> dict:
     }
 
     # Cross-field sanity
-    if not parsed["home_team"] or not parsed["away_team"]:
-        raise ValueError("home_team and away_team are required")
+    if not parsed["home_team"]:
+        raise ValueError("home_team is required")
     if not parsed["league"]:
         raise ValueError("league is required")
     if not parsed["strategy_slug"]:

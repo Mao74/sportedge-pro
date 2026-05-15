@@ -21,9 +21,13 @@ import { useAccounts, type Account, type MarketType } from '@/queries/accounts';
 const DRAFT_KEY = 'sportedge:trade-draft';
 const DRAFT_INTERVAL_MS = 5_000;
 
+type BetType = 'single' | 'multiple';
+
 interface TradeDraft {
   strategy_id: string;
   account_id: string;
+  bet_type: BetType;
+  n_selections: number;        // ≥2 only meaningful when bet_type === 'multiple'
   home_team: string;
   away_team: string;
   league: string;
@@ -39,6 +43,8 @@ interface TradeDraft {
 }
 
 const DEFAULT_DRAFT: Omit<TradeDraft, 'strategy_id' | 'account_id'> = {
+  bet_type: 'single',
+  n_selections: 2,
   home_team: '',
   away_team: '',
   league: '',
@@ -163,12 +169,18 @@ export function TradeForm({ strategies }: TradeFormProps) {
 
   const submit = useMutation({
     mutationFn: async (d: TradeDraft) => {
+      const isMultiple = d.bet_type === 'multiple';
       const body: Record<string, unknown> = {
         strategy_id: d.strategy_id,
         account_id: d.account_id,
-        home_team: d.home_team.trim(),
-        away_team: d.away_team.trim(),
-        league: d.league.trim(),
+        // Multiples collapse to a single labelled row: the user only entered
+        // the leg count, so we synthesise a stable label and clear away_team.
+        home_team: isMultiple
+          ? `Multipla ${d.n_selections} eventi`
+          : d.home_team.trim(),
+        away_team: isMultiple ? null : d.away_team.trim(),
+        league: isMultiple ? (d.league.trim() || 'Multipla') : d.league.trim(),
+        n_selections: isMultiple ? d.n_selections : 1,
         kickoff_at: new Date(d.kickoff_at).toISOString(),
         stake_total: d.stake_total,
         avg_odds: d.avg_odds,
@@ -221,8 +233,14 @@ export function TradeForm({ strategies }: TradeFormProps) {
 
   const validateBeforeSubmit = (): string | null => {
     if (!draft.account_id) return 'Account is required.';
-    if (!draft.home_team.trim() || !draft.away_team.trim()) return 'Match teams are required.';
-    if (!draft.league.trim()) return 'League is required.';
+    if (draft.bet_type === 'single') {
+      if (!draft.home_team.trim() || !draft.away_team.trim())
+        return 'Match teams are required.';
+      if (!draft.league.trim()) return 'League is required.';
+    } else {
+      if (draft.n_selections < 2)
+        return 'A multiple needs at least 2 selections.';
+    }
     if (!draft.kickoff_at) return 'Kickoff time is required.';
     if (!draft.stake_total || Number(draft.stake_total) <= 0) return 'Stake must be > 0.';
     if (!draft.avg_odds || Number(draft.avg_odds) < 1.01) return 'Average odds must be ≥ 1.01.';
@@ -274,22 +292,62 @@ export function TradeForm({ strategies }: TradeFormProps) {
       </div>
 
       <Card header={<span>Match</span>}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label="Home team"
-            value={draft.home_team}
-            onChange={(e) => upd('home_team', e.target.value)}
-          />
-          <Input
-            label="Away team"
-            value={draft.away_team}
-            onChange={(e) => upd('away_team', e.target.value)}
-          />
-          <Input
-            label="League"
-            value={draft.league}
-            onChange={(e) => upd('league', e.target.value)}
-          />
+        <div className="space-y-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-2xs uppercase tracking-widest text-text-tertiary">
+              Bet type
+            </span>
+            <Segmented<BetType>
+              value={draft.bet_type}
+              onChange={(v) => upd('bet_type', v)}
+              options={[
+                { value: 'single', label: 'Singola' },
+                { value: 'multiple', label: 'Multipla' },
+              ]}
+            />
+          </label>
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {draft.bet_type === 'single' ? (
+            <>
+              <Input
+                label="Home team"
+                value={draft.home_team}
+                onChange={(e) => upd('home_team', e.target.value)}
+              />
+              <Input
+                label="Away team"
+                value={draft.away_team}
+                onChange={(e) => upd('away_team', e.target.value)}
+              />
+              <Input
+                label="League"
+                value={draft.league}
+                onChange={(e) => upd('league', e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <NumberInput
+                label="Numero di eventi"
+                min="2"
+                max="20"
+                step="1"
+                value={String(draft.n_selections)}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  upd('n_selections', Number.isFinite(n) && n >= 2 ? n : 2);
+                }}
+                hint="Quante partite contiene la schedina."
+              />
+              <Input
+                label="League (opzionale)"
+                placeholder="Mixed / Serie A + Premier / …"
+                value={draft.league}
+                onChange={(e) => upd('league', e.target.value)}
+              />
+            </>
+          )}
           <label className="flex flex-col gap-1.5">
             <span className="text-2xs uppercase tracking-widest text-text-tertiary">Kickoff</span>
             <input

@@ -55,7 +55,13 @@ export function TradeDetailDrawer({ tradeId, open, onClose }: DrawerProps) {
         setEditing(false);
         onClose();
       }}
-      title={trade ? `${trade.home_team} vs ${trade.away_team}` : 'Trade'}
+      title={
+        trade
+          ? trade.away_team
+            ? `${trade.home_team} vs ${trade.away_team}`
+            : trade.home_team
+          : 'Trade'
+      }
       footer={
         trade ? (
           <div className="flex items-center justify-between gap-2">

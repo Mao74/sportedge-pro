@@ -52,6 +52,7 @@ def _stub_trade(**overrides):
         sport="football",
         home_team="Inter",
         away_team="Lazio",
+        n_selections=1,
         league="Serie A",
         kickoff_at=datetime(2026, 4, 28, 20, 45, tzinfo=UTC),
         ht_score_home=None,
