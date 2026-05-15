@@ -126,6 +126,21 @@ def _build_pnl_inputs(trade: Trade) -> PnLInputs:
 
 
 def _recompute_pnl(trade: Trade) -> None:
+    """Refresh ``computed_pnl_eur`` on the trade row.
+
+    OPEN trades that don't yet have the info the calculator needs
+    (AUTO mode without outcome_label, CASHOUT_ODDS mode without
+    cashout_odds) settle to 0 — the user is journaling the trade
+    before the match resolves. The PnL will be recomputed when the
+    user closes the trade and supplies the outcome.
+    """
+    if trade.status is TradeStatus.OPEN:
+        if trade.pnl_mode is PnLMode.AUTO and trade.outcome_label is None:
+            trade.computed_pnl_eur = ZERO
+            return
+        if trade.pnl_mode is PnLMode.CASHOUT_ODDS and trade.cashout_odds is None:
+            trade.computed_pnl_eur = ZERO
+            return
     trade.computed_pnl_eur = compute_pnl(_build_pnl_inputs(trade))
 
 

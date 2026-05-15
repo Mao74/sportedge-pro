@@ -2,6 +2,13 @@
  * Virtualized trade table. TanStack Table for column model + sort, TanStack
  * Virtual for row windowing. Sticky header, keyboard nav (j/k/Enter), and a
  * focused-row indicator. Click or Enter opens the detail drawer.
+ *
+ * Implementation note: the table is rendered as CSS-Grid <div>s rather
+ * than <table>/<tr> because virtualized rows must be `position: absolute`
+ * to be positioned by the virtualizer, and absolute children of <tbody>
+ * lose all table-layout semantics — columns no longer align with the
+ * header. Grid sidesteps the issue while keeping the column-width
+ * configuration centralised on the column definitions.
  */
 
 import { useMemo, useRef, useEffect } from 'react';
@@ -41,6 +48,12 @@ function statusToneClass(status: string): string {
   return 'bg-bg-overlay text-text-tertiary';
 }
 
+// Column widths kept in one place so the header grid and the row grid
+// stay in lockstep. The match column is `minmax(0, 1fr)` so it absorbs
+// any extra horizontal space without overflowing on narrow viewports.
+const COLUMNS_TEMPLATE =
+  '140px minmax(0, 1fr) 100px 80px 110px 130px 90px';
+
 export function TradeTable({
   rows,
   sort,
@@ -62,7 +75,6 @@ export function TradeTable({
             {dateFmt.format(new Date(row.original.kickoff_at))}
           </span>
         ),
-        size: 140,
       },
       {
         id: 'match',
@@ -86,7 +98,6 @@ export function TradeTable({
             </div>
           </div>
         ),
-        size: 280,
         enableSorting: false,
       },
       {
@@ -98,7 +109,6 @@ export function TradeTable({
             {formatEur(row.original.stake_total)}
           </span>
         ),
-        size: 100,
       },
       {
         id: 'odds',
@@ -109,7 +119,6 @@ export function TradeTable({
             {formatOdds(row.original.avg_odds)}
           </span>
         ),
-        size: 80,
         enableSorting: false,
       },
       {
@@ -135,7 +144,6 @@ export function TradeTable({
             </span>
           );
         },
-        size: 110,
       },
       {
         id: 'outcome',
@@ -146,7 +154,6 @@ export function TradeTable({
             {row.original.outcome_label ?? '—'}
           </span>
         ),
-        size: 130,
         enableSorting: false,
       },
       {
@@ -166,7 +173,6 @@ export function TradeTable({
             {row.original.status}
           </span>
         ),
-        size: 90,
         enableSorting: false,
       },
     ],
@@ -203,79 +209,95 @@ export function TradeTable({
   const items = virtualizer.getVirtualItems();
 
   return (
-    <div className="rounded-xl border border-border-subtle bg-bg-elevated">
+    <div
+      className="rounded-xl border border-border-subtle bg-bg-elevated"
+      role="table"
+      aria-rowcount={rows.length + 1}
+    >
       <div ref={containerRef} className="max-h-[70vh] overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-bg-elevated">
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="border-b border-border-subtle">
-                {hg.headers.map((h) => {
-                  const sortable = h.column.getCanSort();
-                  const dir = h.column.getIsSorted();
-                  return (
-                    <th
-                      key={h.id}
-                      style={{ width: h.column.columnDef.size }}
-                      className="h-10 px-3 text-left text-2xs uppercase tracking-widest text-text-tertiary font-medium"
-                    >
-                      {sortable ? (
-                        <button
-                          type="button"
-                          onClick={h.column.getToggleSortingHandler()}
-                          className="flex items-center gap-1.5 hover:text-text-secondary"
-                        >
-                          {flexRender(h.column.columnDef.header, h.getContext())}
-                          {dir === 'asc' ? (
-                            <ChevronUp size={10} strokeWidth={1.5} />
-                          ) : dir === 'desc' ? (
-                            <ChevronDown size={10} strokeWidth={1.5} />
-                          ) : (
-                            <ArrowUpDown size={10} strokeWidth={1.5} className="opacity-40" />
-                          )}
-                        </button>
-                      ) : (
-                        flexRender(h.column.columnDef.header, h.getContext())
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody style={{ height: totalSize, position: 'relative' }}>
-            {items.map((vi) => {
-              const row = table.getRowModel().rows[vi.index];
-              if (!row) return null;
-              const focused = vi.index === focusIdx;
-              return (
-                <tr
-                  key={row.id}
-                  data-index={vi.index}
-                  ref={virtualizer.measureElement}
-                  onClick={() => {
-                    onFocusIdx(vi.index);
-                    onOpenRow(row.original.id);
-                  }}
-                  className={cn(
-                    'absolute left-0 right-0 cursor-pointer border-b border-border-subtle/60 hover:bg-bg-hover',
-                    focused && 'bg-bg-hover ring-1 ring-inset ring-accent-brand-bg',
-                  )}
-                  style={{ transform: `translateY(${vi.start}px)` }}
-                >
-                  {row.getVisibleCells().map((c) => (
-                    <td
-                      key={c.id}
-                      style={{ width: c.column.columnDef.size }}
-                      className="h-14 px-3"
-                    >
-                      {flexRender(c.column.columnDef.cell, c.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {/* Sticky header */}
+        <div
+          className="sticky top-0 z-10 bg-bg-elevated border-b border-border-subtle"
+          role="row"
+        >
+          {table.getHeaderGroups().map((hg) => (
+            <div
+              key={hg.id}
+              className="grid items-center"
+              style={{ gridTemplateColumns: COLUMNS_TEMPLATE }}
+            >
+              {hg.headers.map((h) => {
+                const sortable = h.column.getCanSort();
+                const dir = h.column.getIsSorted();
+                return (
+                  <div
+                    key={h.id}
+                    role="columnheader"
+                    className="h-10 px-3 flex items-center text-2xs uppercase tracking-widest text-text-tertiary font-medium"
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        onClick={h.column.getToggleSortingHandler()}
+                        className="flex items-center gap-1.5 hover:text-text-secondary"
+                      >
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                        {dir === 'asc' ? (
+                          <ChevronUp size={10} strokeWidth={1.5} />
+                        ) : dir === 'desc' ? (
+                          <ChevronDown size={10} strokeWidth={1.5} />
+                        ) : (
+                          <ArrowUpDown size={10} strokeWidth={1.5} className="opacity-40" />
+                        )}
+                      </button>
+                    ) : (
+                      <span>{flexRender(h.column.columnDef.header, h.getContext())}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Virtualized body */}
+        <div style={{ height: totalSize, position: 'relative' }}>
+          {items.map((vi) => {
+            const row = table.getRowModel().rows[vi.index];
+            if (!row) return null;
+            const focused = vi.index === focusIdx;
+            return (
+              <div
+                key={row.id}
+                role="row"
+                data-index={vi.index}
+                ref={virtualizer.measureElement}
+                onClick={() => {
+                  onFocusIdx(vi.index);
+                  onOpenRow(row.original.id);
+                }}
+                className={cn(
+                  'absolute left-0 right-0 grid items-center cursor-pointer border-b border-border-subtle/60 hover:bg-bg-hover',
+                  focused && 'bg-bg-hover ring-1 ring-inset ring-accent-brand-bg',
+                )}
+                style={{
+                  transform: `translateY(${vi.start}px)`,
+                  gridTemplateColumns: COLUMNS_TEMPLATE,
+                }}
+              >
+                {row.getVisibleCells().map((c) => (
+                  <div
+                    key={c.id}
+                    role="cell"
+                    className="h-14 px-3 flex items-center min-w-0"
+                  >
+                    {flexRender(c.column.columnDef.cell, c.getContext())}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

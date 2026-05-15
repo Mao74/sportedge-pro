@@ -226,14 +226,12 @@ export function TradeForm({ strategies }: TradeFormProps) {
     if (!draft.kickoff_at) return 'Kickoff time is required.';
     if (!draft.stake_total || Number(draft.stake_total) <= 0) return 'Stake must be > 0.';
     if (!draft.avg_odds || Number(draft.avg_odds) < 1.01) return 'Average odds must be ≥ 1.01.';
+    // pnl_mode-specific checks only apply when the user is *finalising*
+    // the trade. We always save trades as OPEN here, so outcome_label and
+    // cashout_odds may legitimately be unknown — the backend records
+    // computed_pnl_eur = 0 until the user closes the trade.
     if (draft.cashout.pnl_mode === 'MANUAL' && !draft.cashout.manual_pnl_eur) {
       return 'Manual P/L is required.';
-    }
-    if (draft.cashout.pnl_mode === 'CASHOUT_ODDS' && !draft.cashout.cashout_odds) {
-      return 'Cashout odds are required.';
-    }
-    if (draft.cashout.pnl_mode === 'AUTO' && !draft.cashout.outcome_label) {
-      return 'Outcome label is required for AUTO mode.';
     }
     return null;
   };
